@@ -26,7 +26,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	m := tui.NewModel()
+	m := tui.NewModel(version)
 	p := tea.NewProgram(m)
 
 	if _, err := p.Run(); err != nil {

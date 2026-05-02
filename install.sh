@@ -40,12 +40,15 @@ if [ -z "$LATEST" ]; then
     exit 1
 fi
 
+# GitHub release tag has "v" prefix, but filename does not
+VERSION=$(echo "$LATEST" | sed 's/^v//')
+
 echo "📦 Latest version: ${LATEST}"
 
 if [ "$OS" = "Windows" ]; then
-    FILENAME="${REPO}_${LATEST}_${OS}_${ARCH}.zip"
+    FILENAME="${REPO}_${VERSION}_${OS}_${ARCH}.zip"
 else
-    FILENAME="${REPO}_${LATEST}_${OS}_${ARCH}.tar.gz"
+    FILENAME="${REPO}_${VERSION}_${OS}_${ARCH}.tar.gz"
 fi
 
 DOWNLOAD_URL="https://github.com/${OWNER}/${REPO}/releases/download/${LATEST}/${FILENAME}"

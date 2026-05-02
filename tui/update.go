@@ -1,11 +1,41 @@
 package tui
 
 import (
+	"fmt"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 	"var-cli/api"
 	"var-cli/config"
 )
+
+type updateCheckMsg struct {
+	Info *api.ReleaseInfo
+	Err  error
+}
+
+type updateAppliedMsg struct{}
+
+type updateErrorMsg struct {
+	Err error
+}
+
+func checkForUpdateCmd(version string) tea.Cmd {
+	return func() tea.Msg {
+		info, err := api.CheckForUpdate(version)
+		return updateCheckMsg{Info: info, Err: err}
+	}
+}
+
+func applyUpdateCmd(url string) tea.Cmd {
+	return func() tea.Msg {
+		err := api.ApplyUpdate(url)
+		if err != nil {
+			return updateErrorMsg{Err: err}
+		}
+		return updateAppliedMsg{}
+	}
+}
 
 func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -45,7 +75,7 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.computeFrequencies()
 		m.state = stateEntries
 		m.err = nil
-		return m, nil
+		return m, checkForUpdateCmd(m.currentVersion)
 
 	case dataErrorMsg:
 		m.state = stateEntries
@@ -60,6 +90,32 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case entryErrorMsg:
 		m.err = msg.Err
+		m.state = stateEntries
+		return m, nil
+
+	case updateCheckMsg:
+		if msg.Err != nil {
+			m.updateError = msg.Err
+		} else if msg.Info != nil {
+			m.latestVersion = msg.Info.Version
+			m.updateAvailable = true
+		}
+		return m, nil
+
+	case updateAppliedMsg:
+		m.state = stateEntries
+		m.updateAvailable = false
+		m.err = nil
+		return m, tea.Batch(
+			func() tea.Msg {
+				m.loading = "✅ Actualizado. Reinicia para usar la nueva versión."
+				return nil
+			},
+			tea.Println("✅ Actualizado. Reinicia para usar la nueva versión."),
+		)
+
+	case updateErrorMsg:
+		m.updateError = msg.Err
 		m.state = stateEntries
 		return m, nil
 
@@ -113,6 +169,13 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateLoadingData
 				m.loading = "Recargando..."
 				return m, loadDataCmd(m.apiClient)
+			case "u":
+				if m.updateAvailable {
+					m.state = stateLoadingData
+					m.loading = fmt.Sprintf("Actualizando a %s...", m.latestVersion)
+					return m, applyUpdateCmd(m.latestVersion)
+				}
+				return m, checkForUpdateCmd(m.currentVersion)
 			}
 
 		case stateFormDate:

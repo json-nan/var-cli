@@ -68,6 +68,11 @@ type trackerModel struct {
 	frequentProjectCount int
 	frequentTagCount     int
 
+	currentVersion string
+	latestVersion  string
+	updateAvailable bool
+	updateError     error
+
 	err     error
 	loading string
 
@@ -83,7 +88,7 @@ type trackerModel struct {
 	formBillable      bool
 }
 
-func NewModel() trackerModel {
+func NewModel(version string) trackerModel {
 	ti := textinput.New()
 	ti.Placeholder = "Pega tu API Token aquí..."
 	ti.Focus()
@@ -103,11 +108,12 @@ func NewModel() trackerModel {
 	timeIn.Placeholder = "60"
 
 	return trackerModel{
-		state:      stateInitializing,
-		tokenInput: ti,
-		dateInput:  dateIn,
-		descInput:  descIn,
-		timeInput:  timeIn,
+		state:          stateInitializing,
+		tokenInput:     ti,
+		dateInput:      dateIn,
+		descInput:      descIn,
+		timeInput:      timeIn,
+		currentVersion: version,
 	}
 }
 
@@ -182,6 +188,7 @@ func (m *trackerModel) resetForm() {
 	m.formTagCursor = 0
 	m.formSelectedTags = make(map[int]bool)
 	m.formBillable = false
+	m.updateError = nil
 }
 
 func (m *trackerModel) computeFrequencies() {

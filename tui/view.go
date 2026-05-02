@@ -22,6 +22,7 @@ var (
 	cursorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true)
 	sectionStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#A0A0A0")).Bold(true)
 	tagCheckStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Bold(true)
+	updateStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700")).Bold(true)
 )
 
 func formatMinutes(minutes int) string {
@@ -119,6 +120,13 @@ func (m trackerModel) renderEntriesView() string {
 		b.WriteString(errorStyle.Render("⚠️ Perfil no cargado") + "\n")
 	}
 
+	// Update banner
+	if m.updateAvailable {
+		b.WriteString(updateStyle.Render(fmt.Sprintf("⬆️ v%s disponible — presiona 'u' para actualizar", m.latestVersion)) + "\n")
+	} else if m.updateError != nil {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("⚠️ Error al buscar actualizaciones: %v", m.updateError)) + "\n")
+	}
+
 	entries := m.displayEntries()
 	if m.showAllEntries {
 		b.WriteString(labelStyle.Render("Mostrando: últimas 2 semanas") + "\n\n")
@@ -155,7 +163,11 @@ func (m trackerModel) renderEntriesView() string {
 	if m.showAllEntries {
 		toggle = "'a' ver semana"
 	}
-	b.WriteString(helpStyle.Render("'n' nueva • 'r' recargar • " + toggle + " • 'q' salir"))
+	updateKey := "'u' actualizar"
+	if m.updateAvailable {
+		updateKey = "'u' actualizar"
+	}
+	b.WriteString(helpStyle.Render("'n' nueva • 'r' recargar • " + toggle + " • " + updateKey + " • 'q' salir"))
 	return b.String()
 }
 
