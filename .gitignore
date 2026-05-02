@@ -1,0 +1,16 @@
+# Binarios
+/tracker
+*.exe
+*.out
+
+# Directorios de build (GoReleaser usará esto después)
+dist/
+
+# Dependencias (si usaras vendor)
+/vendor/
+
+# Archivos de SO
+.DS_Store
+
+# Configuración personal (¡Súper importante!)
+config.json
