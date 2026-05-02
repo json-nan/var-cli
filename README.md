@@ -12,7 +12,27 @@ A terminal UI (TUI) application for tracking workday time entries with the Elani
 
 ## Installation
 
-Download the latest release for your platform from the [releases page](https://github.com/elaniin/var-cli/releases).
+### Quick install (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/json-nan/var-cli/main/install.sh | sh
+```
+
+Or with a custom install directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/json-nan/var-cli/main/install.sh | INSTALL_DIR=$HOME/bin sh
+```
+
+### Manual download
+
+Download the latest release for your platform from the [releases page](https://github.com/json-nan/var-cli/releases).
+
+### Verify installation
+
+```bash
+var-cli --version
+```
 
 ## Usage
 
@@ -29,12 +49,24 @@ var-cli
 | `a` | Toggle 7 days / 2 weeks view |
 | `q` | Quit |
 
+### New entry form
+
+1. **Date** — defaults to today (`YYYY-MM-DD`)
+2. **Description** — what you worked on
+3. **Project** — pick from frequently-used projects first
+4. **Tags** — multi-select with Space, frequently-used first
+5. **Time** — minutes (e.g. `60`, `480`)
+6. **Billable** — toggle Yes/No
+
+Press `Esc` at any step to cancel.
+
 ### Getting your API Token
 
 1. Log in to [VAR](https://var.elaniin.com)
 2. Open DevTools → Network tab
 3. Find a `/projects` request
 4. Copy the `Bearer` token from the `Authorization` header
+5. Paste it into var-cli with **Ctrl+V**
 
 ## Development
 
