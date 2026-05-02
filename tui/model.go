@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
@@ -17,6 +18,13 @@ const (
 	stateLogin
 	stateLoadingData
 	stateEntries
+	stateFormDate
+	stateFormDescription
+	stateFormProject
+	stateFormTags
+	stateFormTime
+	stateFormBillable
+	stateFormSaving
 )
 
 type configLoadedMsg config.AppConfig
@@ -38,6 +46,11 @@ type dataErrorMsg struct {
 	Err error
 }
 
+type entryCreatedMsg struct{}
+type entryErrorMsg struct {
+	Err error
+}
+
 type trackerModel struct {
 	state      sessionState
 	appConfig  config.AppConfig
@@ -51,6 +64,17 @@ type trackerModel struct {
 
 	err     error
 	loading string
+
+	// Form inputs
+	dateInput textinput.Model
+	descInput textinput.Model
+	timeInput textinput.Model
+
+	// Form selection state
+	formProjectCursor int
+	formTagCursor     int
+	formSelectedTags  map[int]bool // tagID -> selected
+	formBillable      bool
 }
 
 func NewModel() trackerModel {
@@ -60,9 +84,24 @@ func NewModel() trackerModel {
 	ti.EchoMode = textinput.EchoPassword
 	ti.EchoCharacter = '•'
 
+	now := time.Now().Format("2006-01-02")
+
+	dateIn := textinput.New()
+	dateIn.Placeholder = now
+	dateIn.SetValue(now)
+
+	descIn := textinput.New()
+	descIn.Placeholder = "Descripción del trabajo realizado..."
+
+	timeIn := textinput.New()
+	timeIn.Placeholder = "60"
+
 	return trackerModel{
 		state:      stateInitializing,
 		tokenInput: ti,
+		dateInput:  dateIn,
+		descInput:  descIn,
+		timeInput:  timeIn,
 	}
 }
 
@@ -122,4 +161,50 @@ func loadDataCmd(client *api.Client) tea.Cmd {
 			Tags:     tags,
 		}
 	}
+}
+
+func createEntryCmd(client *api.Client, entry api.NewTimeEntry) tea.Cmd {
+	return func() tea.Msg {
+		_, err := client.CreateTimeEntry(entry)
+		if err != nil {
+			return entryErrorMsg{Err: err}
+		}
+		return entryCreatedMsg{}
+	}
+}
+
+func (m *trackerModel) resetForm() {
+	m.dateInput.SetValue(time.Now().Format("2006-01-02"))
+	m.descInput.SetValue("")
+	m.timeInput.SetValue("")
+	m.formProjectCursor = 0
+	m.formTagCursor = 0
+	m.formSelectedTags = make(map[int]bool)
+	m.formBillable = false
+}
+
+func (m *trackerModel) buildNewEntry() (api.NewTimeEntry, error) {
+	minutes, err := strconv.Atoi(m.timeInput.Value())
+	if err != nil {
+		return api.NewTimeEntry{}, err
+	}
+
+	var tagIDs []int
+	for id := range m.formSelectedTags {
+		tagIDs = append(tagIDs, id)
+	}
+
+	projectID := 0
+	if len(m.projects) > 0 {
+		projectID = m.projects[m.formProjectCursor].ID
+	}
+
+	return api.NewTimeEntry{
+		Date:        m.dateInput.Value(),
+		Description: m.descInput.Value(),
+		ProjectID:   projectID,
+		TagIDs:      tagIDs,
+		Minutes:     minutes,
+		IsBillable:  m.formBillable,
+	}, nil
 }

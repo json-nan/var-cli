@@ -18,6 +18,8 @@ var (
 	errorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5F5F")).Bold(true)
 	helpStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
 	billableStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575"))
+	selectedStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#7D56F4")).Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
+	cursorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true)
 )
 
 func formatMinutes(minutes int) string {
@@ -31,24 +33,10 @@ func formatMinutes(minutes int) string {
 	return fmt.Sprintf("%dm", m)
 }
 
-func (m trackerModel) getProjectName(id int) string {
-	for _, p := range m.projects {
-		if p.ID == id {
-			return p.Name
-		}
-	}
-	return fmt.Sprintf("Proyecto %d", id)
-}
-
-func (m trackerModel) getTagNames(ids []int) string {
+func (m trackerModel) getTagNames(tags []api.Tag) string {
 	var names []string
-	for _, id := range ids {
-		for _, t := range m.tags {
-			if t.ID == id {
-				names = append(names, t.Name)
-				break
-			}
-		}
+	for _, t := range tags {
+		names = append(names, t.Name)
 	}
 	if len(names) == 0 {
 		return ""
@@ -90,6 +78,22 @@ func (m trackerModel) View() tea.View {
 
 	case stateEntries:
 		s = m.renderEntriesView()
+
+	case stateFormDate:
+		s = m.renderFormDate()
+	case stateFormDescription:
+		s = m.renderFormDescription()
+	case stateFormProject:
+		s = m.renderFormProject()
+	case stateFormTags:
+		s = m.renderFormTags()
+	case stateFormTime:
+		s = m.renderFormTime()
+	case stateFormBillable:
+		s = m.renderFormBillable()
+	case stateFormSaving:
+		s = titleStyle.Render("💾 Guardando") + "\n\n"
+		s += m.loading
 	}
 
 	finalView := lipgloss.NewStyle().Margin(1, 2).Render(s)
@@ -141,19 +145,19 @@ func (m trackerModel) renderEntriesView() string {
 		}
 	}
 
-	b.WriteString(helpStyle.Render("Presiona 'q' para salir"))
+	b.WriteString(helpStyle.Render("'n' nueva entrada • 'q' salir"))
 	return b.String()
 }
 
 func (m trackerModel) renderEntry(e api.TimeEntry) string {
 	var parts []string
 	parts = append(parts, fmt.Sprintf("  • %s", e.Description))
-	parts = append(parts, labelStyle.Render(fmt.Sprintf("[%s]", m.getProjectName(e.ProjectID))))
+	parts = append(parts, labelStyle.Render(fmt.Sprintf("[%s]", e.Project.Name)))
 	parts = append(parts, lipgloss.NewStyle().Foreground(lipgloss.Color("#F4D03F")).Render(formatMinutes(e.Minutes)))
 	if e.IsBillable {
 		parts = append(parts, billableStyle.Render("$"))
 	}
-	tagNames := m.getTagNames(e.TagIDs)
+	tagNames := m.getTagNames(e.Tags)
 	if tagNames != "" {
 		parts = append(parts, labelStyle.Render(fmt.Sprintf("(%s)", tagNames)))
 	}
@@ -173,7 +177,6 @@ func sortedDates(grouped map[string][]api.TimeEntry) []string {
 	for d := range grouped {
 		dates = append(dates, d)
 	}
-	// Simple string sort works for YYYY-MM-DD format
 	for i := 0; i < len(dates); i++ {
 		for j := i + 1; j < len(dates); j++ {
 			if dates[j] < dates[i] {
@@ -182,4 +185,111 @@ func sortedDates(grouped map[string][]api.TimeEntry) []string {
 		}
 	}
 	return dates
+}
+
+// ── Form views ───────────────────────────────────────────────
+
+func formHeader(step, total int, title string) string {
+	progress := fmt.Sprintf("Paso %d/%d", step, total)
+	return titleStyle.Render(title) + "  " + labelStyle.Render(progress) + "\n\n"
+}
+
+func formFooter() string {
+	return "\n" + helpStyle.Render("Enter continuar • Esc cancelar")
+}
+
+func (m trackerModel) renderFormDate() string {
+	var b strings.Builder
+	b.WriteString(formHeader(1, 6, "📝 Nueva Entrada"))
+	b.WriteString("Fecha (YYYY-MM-DD):\n\n")
+	b.WriteString(m.dateInput.View() + "\n")
+	b.WriteString(formFooter())
+	return b.String()
+}
+
+func (m trackerModel) renderFormDescription() string {
+	var b strings.Builder
+	b.WriteString(formHeader(2, 6, "📝 Nueva Entrada"))
+	b.WriteString("Descripción:\n\n")
+	b.WriteString(m.descInput.View() + "\n")
+	b.WriteString(formFooter())
+	return b.String()
+}
+
+func (m trackerModel) renderFormProject() string {
+	var b strings.Builder
+	b.WriteString(formHeader(3, 6, "📝 Nueva Entrada"))
+	b.WriteString("Selecciona el proyecto:\n\n")
+
+	if len(m.projects) == 0 {
+		b.WriteString(labelStyle.Render("No hay proyectos disponibles.") + "\n")
+	} else {
+		for i, p := range m.projects {
+			line := fmt.Sprintf("  %s %s", cursorStyle.Render("›"), p.Name)
+			if i == m.formProjectCursor {
+				line = selectedStyle.Render(" › "+p.Name+" ")
+			}
+			b.WriteString(line + "\n")
+		}
+	}
+
+	b.WriteString(formFooter())
+	return b.String()
+}
+
+func (m trackerModel) renderFormTags() string {
+	var b strings.Builder
+	b.WriteString(formHeader(4, 6, "📝 Nueva Entrada"))
+	b.WriteString("Selecciona las etiquetas (Espacio para marcar):\n\n")
+
+	if len(m.tags) == 0 {
+		b.WriteString(labelStyle.Render("No hay etiquetas disponibles.") + "\n")
+	} else {
+		for i, t := range m.tags {
+			checked := "[ ]"
+			if m.formSelectedTags[t.ID] {
+				checked = "[x]"
+			}
+			prefix := "  "
+			if i == m.formTagCursor {
+				prefix = cursorStyle.Render("› ")
+			}
+			line := fmt.Sprintf("%s%s %s", prefix, checked, t.Name)
+			if i == m.formTagCursor {
+				line = selectedStyle.Render(" " + checked + " " + t.Name + " ")
+			}
+			b.WriteString(line + "\n")
+		}
+	}
+
+	b.WriteString("\n" + helpStyle.Render("Espacio marcar/desmarcar • Enter continuar • Esc cancelar"))
+	return b.String()
+}
+
+func (m trackerModel) renderFormTime() string {
+	var b strings.Builder
+	b.WriteString(formHeader(5, 6, "📝 Nueva Entrada"))
+	b.WriteString("Tiempo en minutos:\n\n")
+	b.WriteString(m.timeInput.View() + "\n")
+	b.WriteString(labelStyle.Render("Ejemplos: 30, 60, 90, 480") + "\n")
+	b.WriteString(formFooter())
+	return b.String()
+}
+
+func (m trackerModel) renderFormBillable() string {
+	var b strings.Builder
+	b.WriteString(formHeader(6, 6, "📝 Nueva Entrada"))
+	b.WriteString("¿Es facturable?\n\n")
+
+	noStyle := labelStyle
+	yesStyle := labelStyle
+	if m.formBillable {
+		yesStyle = selectedStyle
+	} else {
+		noStyle = selectedStyle
+	}
+
+	b.WriteString(noStyle.Render("  NO  ") + "    " + yesStyle.Render("  SÍ  ") + "\n")
+	b.WriteString("\n" + helpStyle.Render("← → para cambiar • Enter guardar • Esc cancelar"))
+	return b.String()
 }

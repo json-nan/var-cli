@@ -51,6 +51,17 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.Err
 		return m, nil
 
+	case entryCreatedMsg:
+		m.resetForm()
+		m.state = stateLoadingData
+		m.loading = "Recargando entradas..."
+		return m, loadDataCmd(m.apiClient)
+
+	case entryErrorMsg:
+		m.err = msg.Err
+		m.state = stateEntries
+		return m, nil
+
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -86,9 +97,141 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case stateEntries:
-			if msg.String() == "q" {
+			switch msg.String() {
+			case "q":
 				return m, tea.Quit
+			case "n":
+				m.resetForm()
+				m.state = stateFormDate
+				m.dateInput.Focus()
+				return m, nil
 			}
+
+		case stateFormDate:
+			if msg.String() == "esc" {
+				m.state = stateEntries
+				return m, nil
+			}
+			if msg.String() == "enter" {
+				m.state = stateFormDescription
+				m.descInput.Focus()
+				return m, nil
+			}
+			m.dateInput, cmd = m.dateInput.Update(msg)
+			return m, cmd
+
+		case stateFormDescription:
+			if msg.String() == "esc" {
+				m.state = stateEntries
+				return m, nil
+			}
+			if msg.String() == "enter" {
+				if len(m.projects) == 0 {
+					// Skip project selection if no projects
+					if len(m.tags) == 0 {
+						m.state = stateFormTime
+						m.timeInput.Focus()
+					} else {
+						m.state = stateFormTags
+					}
+				} else {
+					m.state = stateFormProject
+				}
+				return m, nil
+			}
+			m.descInput, cmd = m.descInput.Update(msg)
+			return m, cmd
+
+		case stateFormProject:
+			if msg.String() == "esc" {
+				m.state = stateEntries
+				return m, nil
+			}
+			switch msg.String() {
+			case "up", "k":
+				if m.formProjectCursor > 0 {
+					m.formProjectCursor--
+				}
+			case "down", "j":
+				if m.formProjectCursor < len(m.projects)-1 {
+					m.formProjectCursor++
+				}
+			case "enter":
+				if len(m.tags) == 0 {
+					m.state = stateFormTime
+					m.timeInput.Focus()
+				} else {
+					m.state = stateFormTags
+				}
+			}
+			return m, nil
+
+		case stateFormTags:
+			if msg.String() == "esc" {
+				m.state = stateEntries
+				return m, nil
+			}
+			switch msg.String() {
+			case "up", "k":
+				if m.formTagCursor > 0 {
+					m.formTagCursor--
+				}
+			case "down", "j":
+				if m.formTagCursor < len(m.tags)-1 {
+					m.formTagCursor++
+				}
+			case " ":
+				if len(m.tags) > 0 {
+					tagID := m.tags[m.formTagCursor].ID
+					if m.formSelectedTags[tagID] {
+						delete(m.formSelectedTags, tagID)
+					} else {
+						if m.formSelectedTags == nil {
+							m.formSelectedTags = make(map[int]bool)
+						}
+						m.formSelectedTags[tagID] = true
+					}
+				}
+			case "enter":
+				m.state = stateFormTime
+				m.timeInput.Focus()
+			}
+			return m, nil
+
+		case stateFormTime:
+			if msg.String() == "esc" {
+				m.state = stateEntries
+				return m, nil
+			}
+			if msg.String() == "enter" {
+				m.state = stateFormBillable
+				return m, nil
+			}
+			m.timeInput, cmd = m.timeInput.Update(msg)
+			return m, cmd
+
+		case stateFormBillable:
+			if msg.String() == "esc" {
+				m.state = stateEntries
+				return m, nil
+			}
+			switch msg.String() {
+			case "left", "h":
+				m.formBillable = false
+			case "right", "l":
+				m.formBillable = true
+			case "enter":
+				entry, err := m.buildNewEntry()
+				if err != nil {
+					m.err = err
+					m.state = stateEntries
+					return m, nil
+				}
+				m.state = stateFormSaving
+				m.loading = "Guardando entrada..."
+				return m, createEntryCmd(m.apiClient, entry)
+			}
+			return m, nil
 		}
 	}
 

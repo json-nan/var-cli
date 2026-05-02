@@ -55,13 +55,14 @@ type Tag struct {
 }
 
 type TimeEntry struct {
-	ID          int    `json:"id"`
-	Date        string `json:"date"`
-	Description string `json:"description"`
-	ProjectID   int    `json:"project_id"`
-	TagIDs      []int  `json:"tag_ids"`
-	Minutes     int    `json:"minutes"`
-	IsBillable  bool   `json:"is_billable"`
+	ID          int     `json:"id"`
+	Date        string  `json:"date"`
+	Description string  `json:"description"`
+	Minutes     int     `json:"minutes"`
+	IsBillable  bool    `json:"is_billable"`
+	IsEditable  bool    `json:"is_editable"`
+	Project     Project `json:"project"`
+	Tags        []Tag   `json:"tags"`
 }
 
 type NewTimeEntry struct {
@@ -165,7 +166,36 @@ func (c *Client) GetProjects() ([]Project, error) {
 	if resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("failed to fetch projects: %s", resp.Status())
 	}
-	return decodeList[Project](resp.Bytes())
+
+	body := resp.Bytes()
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("empty response body")
+	}
+
+	var result []Project
+
+	// Wrapped object: { "data": { "CLIENT": [...] } }
+	var wrapped struct {
+		Data map[string][]Project `json:"data"`
+	}
+	if err := json.Unmarshal(body, &wrapped); err == nil && len(wrapped.Data) > 0 {
+		for _, projects := range wrapped.Data {
+			result = append(result, projects...)
+		}
+		return result, nil
+	}
+
+	// Direct map: { "CLIENT": [...] }
+	var direct map[string][]Project
+	if err := json.Unmarshal(body, &direct); err == nil {
+		for _, projects := range direct {
+			result = append(result, projects...)
+		}
+		return result, nil
+	}
+
+	return nil, fmt.Errorf("failed to decode projects response")
 }
 
 func (c *Client) GetTags() ([]Tag, error) {
@@ -192,7 +222,36 @@ func (c *Client) GetTimeEntries(startDate, endDate string) ([]TimeEntry, error) 
 	if resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("failed to fetch time entries: %s", resp.Status())
 	}
-	return decodeList[TimeEntry](resp.Bytes())
+
+	body := resp.Bytes()
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("empty response body")
+	}
+
+	var result []TimeEntry
+
+	// Wrapped object: { "data": { "2026-05-01": [...] } }
+	var wrapped struct {
+		Data map[string][]TimeEntry `json:"data"`
+	}
+	if err := json.Unmarshal(body, &wrapped); err == nil && len(wrapped.Data) > 0 {
+		for _, entries := range wrapped.Data {
+			result = append(result, entries...)
+		}
+		return result, nil
+	}
+
+	// Direct map: { "2026-05-01": [...] }
+	var direct map[string][]TimeEntry
+	if err := json.Unmarshal(body, &direct); err == nil {
+		for _, entries := range direct {
+			result = append(result, entries...)
+		}
+		return result, nil
+	}
+
+	return nil, fmt.Errorf("failed to decode time entries response")
 }
 
 func (c *Client) CreateTimeEntry(entry NewTimeEntry) (*TimeEntry, error) {
