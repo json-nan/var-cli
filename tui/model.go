@@ -70,6 +70,7 @@ type trackerModel struct {
 
 	currentVersion string
 	latestVersion  string
+	latestURL      string
 	updateAvailable bool
 	updateError     error
 

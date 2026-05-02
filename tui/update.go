@@ -98,6 +98,7 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateError = msg.Err
 		} else if msg.Info != nil {
 			m.latestVersion = msg.Info.Version
+			m.latestURL = msg.Info.URL
 			m.updateAvailable = true
 		}
 		return m, nil
@@ -170,11 +171,12 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = "Recargando..."
 				return m, loadDataCmd(m.apiClient)
 			case "u":
-				if m.updateAvailable {
+				if m.updateAvailable && m.latestURL != "" {
 					m.state = stateLoadingData
 					m.loading = fmt.Sprintf("Actualizando a %s...", m.latestVersion)
-					return m, applyUpdateCmd(m.latestVersion)
+					return m, applyUpdateCmd(m.latestURL)
 				}
+				m.loading = "Buscando actualizaciones..."
 				return m, checkForUpdateCmd(m.currentVersion)
 			}
 
