@@ -27,13 +27,32 @@ func CheckForUpdate(currentVersion string) (*ReleaseInfo, error) {
 		return nil, nil
 	}
 
+	owner := os.Getenv("VAR_CLI_OWNER")
+	if owner == "" {
+		owner = "json-nan"
+	}
+	repo := os.Getenv("VAR_CLI_REPO")
+	if repo == "" {
+		repo = "var-cli"
+	}
+
+	apiBase := os.Getenv("VAR_CLI_API_URL")
+	if apiBase == "" {
+		apiBase = "https://api.github.com"
+	}
+	downloadBase := os.Getenv("VAR_CLI_DOWNLOAD_URL")
+	if downloadBase == "" {
+		downloadBase = "https://github.com"
+	}
+
 	r := resty.New()
 	r.SetTimeout(10 * time.Second)
 
 	var result struct {
 		TagName string `json:"tag_name"`
 	}
-	resp, err := r.NewRequest().SetResult(&result).Get("https://api.github.com/repos/json-nan/var-cli/releases/latest")
+	apiURL := fmt.Sprintf("%s/repos/%s/%s/releases/latest", apiBase, owner, repo)
+	resp, err := r.NewRequest().SetResult(&result).Get(apiURL)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +83,7 @@ func CheckForUpdate(currentVersion string) (*ReleaseInfo, error) {
 
 	// GitHub release filename: var-cli_0.2.0_Darwin_arm64.tar.gz (NO "v" prefix)
 	filename := fmt.Sprintf("var-cli_%s_%s_%s.%s", tagVersion, strings.Title(osName), arch, ext)
-	url := fmt.Sprintf("https://github.com/json-nan/var-cli/releases/download/%s/%s", result.TagName, filename)
+	url := fmt.Sprintf("%s/%s/%s/releases/download/%s/%s", downloadBase, owner, repo, result.TagName, filename)
 
 	return &ReleaseInfo{
 		TagName: result.TagName,

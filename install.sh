@@ -84,14 +84,27 @@ else
     exit 1
 fi
 
-if command -v "$BINARY" >/dev/null 2>&1; then
-    echo ""
-    ${BINARY} --version
-    echo ""
-    echo "🚀 Run '${BINARY}' to get started"
-else
-    echo ""
-    echo "⚠️  ${INSTALL_DIR} is not in your PATH"
-    echo "   Add this to your shell profile:"
-    echo "   export PATH=\"${INSTALL_DIR}:\$PATH\""
-fi
+echo ""
+${BINARY} --version
+
+# Check if install dir is in PATH
+case ":$PATH:" in
+    *":${INSTALL_DIR}:"*)
+        echo ""
+        echo "🚀 Run '${BINARY}' to get started"
+        ;;
+    *)
+        echo ""
+        echo "⚠️  ${INSTALL_DIR} is not in your PATH"
+        echo ""
+        echo "   Add this line to your shell profile:"
+        echo ""
+        echo "     export PATH=\"${INSTALL_DIR}:\$PATH\""
+        echo ""
+        echo "   Then reload:"
+        echo ""
+        echo "     source ~/.bashrc    # for Bash"
+        echo "     source ~/.zshrc     # for Zsh"
+        echo ""
+        ;;
+esac

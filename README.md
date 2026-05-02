@@ -34,6 +34,30 @@ Download the latest release for your platform from the [releases page](https://g
 var-cli --version
 ```
 
+### Add to PATH
+
+If the installer used `~/.local/bin` but the command is not found, add it to your shell profile:
+
+**Bash (~/.bashrc):**
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+**Zsh (~/.zshrc):**
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+**Fish (~/.config/fish/config.fish):**
+```fish
+fish_add_path $HOME/.local/bin
+```
+
+Then reload your shell:
+```bash
+source ~/.bashrc   # or ~/.zshrc
+```
+
 ## Usage
 
 ```bash
@@ -47,6 +71,7 @@ var-cli
 | `n` | New time entry |
 | `r` | Refresh entries |
 | `a` | Toggle 7 days / 2 weeks view |
+| `u` | Update (if available) |
 | `q` | Quit |
 
 ### New entry form
@@ -72,6 +97,28 @@ Press `Esc` at any step to cancel.
 
 ```bash
 go run main.go
+```
+
+### Testing self-updates locally
+
+A local test server is included to verify the update flow without touching real releases.
+
+```bash
+# 1. Start the test server (in one terminal)
+go run scripts/testserver.go
+
+# 2. Build var-cli with a fake old version (in another terminal)
+go build -ldflags="-X main.version=v0.1.0" -o /tmp/var-cli-test ./main.go
+
+# 3. Run it pointing to the local test server
+VAR_CLI_API_URL=http://localhost:9999 \
+VAR_CLI_DOWNLOAD_URL=http://localhost:9999 \
+/tmp/var-cli-test
+
+# 4. In the app, press 'u' to trigger the update
+# 5. Verify the update worked:
+/tmp/var-cli-test --version
+# → var-cli 99.0.0
 ```
 
 ## License
