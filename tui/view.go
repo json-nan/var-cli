@@ -107,7 +107,6 @@ func (m trackerModel) renderEntriesView() string {
 	var b strings.Builder
 
 	// Header
-	b.WriteString(titleStyle.Render("🕒 Entradas de Tiempo") + "\n")
 	if m.profile != nil && m.profile.Name != "" {
 		subtitle := fmt.Sprintf("👤 %s • %s", m.profile.Name, m.profile.Email)
 		if m.profile.Position != "" {
