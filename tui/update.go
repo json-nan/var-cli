@@ -42,6 +42,7 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.entries = msg.Entries
 		m.projects = msg.Projects
 		m.tags = msg.Tags
+		m.computeFrequencies()
 		m.state = stateEntries
 		m.err = nil
 		return m, nil
@@ -105,6 +106,13 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateFormDate
 				m.dateInput.Focus()
 				return m, nil
+			case "a":
+				m.showAllEntries = !m.showAllEntries
+				return m, nil
+			case "r":
+				m.state = stateLoadingData
+				m.loading = "Recargando..."
+				return m, loadDataCmd(m.apiClient)
 			}
 
 		case stateFormDate:
@@ -180,7 +188,7 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.formTagCursor < len(m.tags)-1 {
 					m.formTagCursor++
 				}
-			case " ":
+			case " ", "space":
 				if len(m.tags) > 0 {
 					tagID := m.tags[m.formTagCursor].ID
 					if m.formSelectedTags[tagID] {

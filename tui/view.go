@@ -20,6 +20,8 @@ var (
 	billableStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575"))
 	selectedStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#7D56F4")).Foreground(lipgloss.Color("#FFFFFF")).Bold(true)
 	cursorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true)
+	sectionStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#A0A0A0")).Bold(true)
+	tagCheckStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Bold(true)
 )
 
 func formatMinutes(minutes int) string {
@@ -44,9 +46,9 @@ func (m trackerModel) getTagNames(tags []api.Tag) string {
 	return strings.Join(names, ", ")
 }
 
-func (m trackerModel) weeklyTotal() int {
+func totalMinutes(entries []api.TimeEntry) int {
 	total := 0
-	for _, e := range m.entries {
+	for _, e := range entries {
 		total += e.Minutes
 	}
 	return total
@@ -117,23 +119,27 @@ func (m trackerModel) renderEntriesView() string {
 		b.WriteString(errorStyle.Render("⚠️ Perfil no cargado") + "\n")
 	}
 
-	startDate, endDate := getWeekRange()
-	b.WriteString(labelStyle.Render(fmt.Sprintf("Semana: %s → %s", startDate, endDate)) + "\n\n")
+	entries := m.displayEntries()
+	if m.showAllEntries {
+		b.WriteString(labelStyle.Render("Mostrando: últimas 2 semanas") + "\n\n")
+	} else {
+		b.WriteString(labelStyle.Render("Mostrando: últimos 7 días") + "\n\n")
+	}
 
 	// Weekly summary
-	totalMinutes := m.weeklyTotal()
-	totalHours := float64(totalMinutes) / 60.0
-	b.WriteString(fmt.Sprintf("Total semanal: %.1fh / 44h\n\n", totalHours))
+	totalMin := totalMinutes(entries)
+	totalHours := float64(totalMin) / 60.0
+	b.WriteString(fmt.Sprintf("Total: %.1fh / 44h\n\n", totalHours))
 
 	if m.err != nil {
 		b.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n\n")
 	}
 
 	// Entries grouped by date
-	if len(m.entries) == 0 {
-		b.WriteString("No hay entradas registradas esta semana.\n")
+	if len(entries) == 0 {
+		b.WriteString("No hay entradas registradas en este período.\n")
 	} else {
-		entriesByDate := groupEntriesByDate(m.entries)
+		entriesByDate := groupEntriesByDate(entries)
 		for _, date := range sortedDates(entriesByDate) {
 			b.WriteString(dateHeaderStyle.Render(date) + "\n")
 			dayTotal := 0
@@ -145,7 +151,11 @@ func (m trackerModel) renderEntriesView() string {
 		}
 	}
 
-	b.WriteString(helpStyle.Render("'n' nueva entrada • 'q' salir"))
+	toggle := "'a' ver todo"
+	if m.showAllEntries {
+		toggle = "'a' ver semana"
+	}
+	b.WriteString(helpStyle.Render("'n' nueva • 'r' recargar • " + toggle + " • 'q' salir"))
 	return b.String()
 }
 
@@ -224,17 +234,32 @@ func (m trackerModel) renderFormProject() string {
 	if len(m.projects) == 0 {
 		b.WriteString(labelStyle.Render("No hay proyectos disponibles.") + "\n")
 	} else {
-		for i, p := range m.projects {
-			line := fmt.Sprintf("  %s %s", cursorStyle.Render("›"), p.Name)
-			if i == m.formProjectCursor {
-				line = selectedStyle.Render(" › "+p.Name+" ")
+		if m.frequentProjectCount > 0 {
+			b.WriteString(sectionStyle.Render("▸ Frecuentes") + "\n")
+			for i := 0; i < m.frequentProjectCount && i < len(m.projects); i++ {
+				b.WriteString(m.renderProjectItem(i) + "\n")
 			}
-			b.WriteString(line + "\n")
+			if m.frequentProjectCount < len(m.projects) {
+				b.WriteString("\n" + sectionStyle.Render("▸ Todos") + "\n")
+			}
+		} else {
+			b.WriteString(sectionStyle.Render("▸ Todos") + "\n")
+		}
+		for i := m.frequentProjectCount; i < len(m.projects); i++ {
+			b.WriteString(m.renderProjectItem(i) + "\n")
 		}
 	}
 
 	b.WriteString(formFooter())
 	return b.String()
+}
+
+func (m trackerModel) renderProjectItem(i int) string {
+	p := m.projects[i]
+	if i == m.formProjectCursor {
+		return selectedStyle.Render(" › " + p.Name + " ")
+	}
+	return "   " + p.Name
 }
 
 func (m trackerModel) renderFormTags() string {
@@ -245,25 +270,39 @@ func (m trackerModel) renderFormTags() string {
 	if len(m.tags) == 0 {
 		b.WriteString(labelStyle.Render("No hay etiquetas disponibles.") + "\n")
 	} else {
-		for i, t := range m.tags {
-			checked := "[ ]"
-			if m.formSelectedTags[t.ID] {
-				checked = "[x]"
+		if m.frequentTagCount > 0 {
+			b.WriteString(sectionStyle.Render("▸ Frecuentes") + "\n")
+			for i := 0; i < m.frequentTagCount && i < len(m.tags); i++ {
+				b.WriteString(m.renderTagItem(i) + "\n")
 			}
-			prefix := "  "
-			if i == m.formTagCursor {
-				prefix = cursorStyle.Render("› ")
+			if m.frequentTagCount < len(m.tags) {
+				b.WriteString("\n" + sectionStyle.Render("▸ Todos") + "\n")
 			}
-			line := fmt.Sprintf("%s%s %s", prefix, checked, t.Name)
-			if i == m.formTagCursor {
-				line = selectedStyle.Render(" " + checked + " " + t.Name + " ")
-			}
-			b.WriteString(line + "\n")
+		} else {
+			b.WriteString(sectionStyle.Render("▸ Todos") + "\n")
+		}
+		for i := m.frequentTagCount; i < len(m.tags); i++ {
+			b.WriteString(m.renderTagItem(i) + "\n")
 		}
 	}
 
 	b.WriteString("\n" + helpStyle.Render("Espacio marcar/desmarcar • Enter continuar • Esc cancelar"))
 	return b.String()
+}
+
+func (m trackerModel) renderTagItem(i int) string {
+	t := m.tags[i]
+	checked := "[ ]"
+	checkStyle := labelStyle
+	if m.formSelectedTags[t.ID] {
+		checked = "[x]"
+		checkStyle = tagCheckStyle
+	}
+
+	if i == m.formTagCursor {
+		return selectedStyle.Render(" › " + checkStyle.Render(checked) + " " + t.Name)
+	}
+	return "   " + checkStyle.Render(checked) + " " + t.Name
 }
 
 func (m trackerModel) renderFormTime() string {

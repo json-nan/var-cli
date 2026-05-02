@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strconv"
 	"time"
 
@@ -61,6 +62,11 @@ type trackerModel struct {
 	entries  []api.TimeEntry
 	projects []api.Project
 	tags     []api.Tag
+
+	showAllEntries bool
+
+	frequentProjectCount int
+	frequentTagCount     int
 
 	err     error
 	loading string
@@ -125,20 +131,15 @@ func verifyTokenCmd(client *api.Client) tea.Cmd {
 	}
 }
 
-func getWeekRange() (string, string) {
+func getTwoWeekRange() (string, string) {
 	now := time.Now()
-	weekday := int(now.Weekday())
-	if weekday == 0 {
-		weekday = 7
-	}
-	start := now.AddDate(0, 0, -weekday+1)
-	end := start.AddDate(0, 0, 6)
-	return start.Format("2006-01-02"), end.Format("2006-01-02")
+	start := now.AddDate(0, 0, -13)
+	return start.Format("2006-01-02"), now.Format("2006-01-02")
 }
 
 func loadDataCmd(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
-		startDate, endDate := getWeekRange()
+		startDate, endDate := getTwoWeekRange()
 
 		entries, err := client.GetTimeEntries(startDate, endDate)
 		if err != nil {
@@ -181,6 +182,66 @@ func (m *trackerModel) resetForm() {
 	m.formTagCursor = 0
 	m.formSelectedTags = make(map[int]bool)
 	m.formBillable = false
+}
+
+func (m *trackerModel) computeFrequencies() {
+	projectCounts := make(map[int]int)
+	for _, e := range m.entries {
+		projectCounts[e.Project.ID]++
+	}
+
+	sort.Slice(m.projects, func(i, j int) bool {
+		ci := projectCounts[m.projects[i].ID]
+		cj := projectCounts[m.projects[j].ID]
+		if ci != cj {
+			return ci > cj
+		}
+		return m.projects[i].Name < m.projects[j].Name
+	})
+
+	m.frequentProjectCount = 0
+	for _, p := range m.projects {
+		if projectCounts[p.ID] > 0 {
+			m.frequentProjectCount++
+		}
+	}
+
+	tagCounts := make(map[int]int)
+	for _, e := range m.entries {
+		for _, t := range e.Tags {
+			tagCounts[t.ID]++
+		}
+	}
+
+	sort.Slice(m.tags, func(i, j int) bool {
+		ci := tagCounts[m.tags[i].ID]
+		cj := tagCounts[m.tags[j].ID]
+		if ci != cj {
+			return ci > cj
+		}
+		return m.tags[i].Name < m.tags[j].Name
+	})
+
+	m.frequentTagCount = 0
+	for _, t := range m.tags {
+		if tagCounts[t.ID] > 0 {
+			m.frequentTagCount++
+		}
+	}
+}
+
+func (m trackerModel) displayEntries() []api.TimeEntry {
+	if m.showAllEntries {
+		return m.entries
+	}
+	cutoff := time.Now().AddDate(0, 0, -6).Format("2006-01-02")
+	var filtered []api.TimeEntry
+	for _, e := range m.entries {
+		if e.Date >= cutoff {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered
 }
 
 func (m *trackerModel) buildNewEntry() (api.NewTimeEntry, error) {
