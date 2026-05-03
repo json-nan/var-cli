@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 	"var-cli/api"
@@ -75,6 +76,7 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.computeFrequencies()
 		m.state = stateEntries
 		m.err = nil
+		m.entryCursor = 0
 		return m, checkForUpdateCmd(m.currentVersion)
 
 	case dataErrorMsg:
@@ -93,6 +95,17 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateEntries
 		return m, nil
 
+	case entryDeletedMsg:
+		m.state = stateLoadingData
+		m.loading = "Recargando entradas..."
+		m.entryCursor = 0
+		return m, loadDataCmd(m.apiClient)
+
+	case deleteErrorMsg:
+		m.err = msg.Err
+		m.state = stateEntries
+		return m, nil
+
 	case updateCheckMsg:
 		if msg.Err != nil {
 			m.updateError = msg.Err
@@ -107,17 +120,22 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateEntries
 		m.updateAvailable = false
 		m.err = nil
-		return m, tea.Batch(
-			func() tea.Msg {
-				m.loading = "✅ Actualizado. Reinicia para usar la nueva versión."
-				return nil
-			},
-			tea.Println("✅ Actualizado. Reinicia para usar la nueva versión."),
-		)
+		m.loading = "Actualizado. Reinicia para usar la nueva version."
+		return m, tea.Println("Actualizado. Reinicia para usar la nueva version.")
 
 	case updateErrorMsg:
 		m.updateError = msg.Err
 		m.state = stateEntries
+		return m, nil
+
+	case spinner.TickMsg:
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.dayProgress.SetWidth(max(20, msg.Width-10))
+		m.weekProgress.SetWidth(max(20, msg.Width-10))
 		return m, nil
 
 	case tea.KeyMsg:
@@ -165,6 +183,7 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "a":
 				m.showAllEntries = !m.showAllEntries
+				m.entryCursor = 0
 				return m, nil
 			case "r":
 				m.state = stateLoadingData
@@ -178,7 +197,48 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.loading = "Buscando actualizaciones..."
 				return m, checkForUpdateCmd(m.currentVersion)
+			case "d":
+				if len(m.displayEntries()) > 0 {
+					m.state = stateDeletingConfirm
+					m.deleteConfirm = false
+				}
+				return m, nil
+			case "up", "k":
+				if m.entryCursor > 0 {
+					m.entryCursor--
+				}
+				return m, nil
+			case "down", "j":
+				disp := m.displayEntries()
+				if m.entryCursor < len(disp)-1 {
+					m.entryCursor++
+				}
+				return m, nil
 			}
+
+		case stateDeletingConfirm:
+			switch msg.String() {
+			case "esc", "q":
+				m.state = stateEntries
+				return m, nil
+			case "left", "h":
+				m.deleteConfirm = false
+			case "right", "l":
+				m.deleteConfirm = true
+			case "enter":
+				if m.deleteConfirm {
+					disp := m.displayEntries()
+					if m.entryCursor < len(disp) {
+						entry := disp[m.entryCursor]
+						m.state = stateDeleting
+						m.loading = "Eliminando entrada..."
+						return m, deleteEntryCmd(m.apiClient, entry.ID)
+					}
+				}
+				m.state = stateEntries
+				return m, nil
+			}
+			return m, nil
 
 		case stateFormDate:
 			if msg.String() == "esc" {
@@ -200,7 +260,6 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if msg.String() == "enter" {
 				if len(m.projects) == 0 {
-					// Skip project selection if no projects
 					if len(m.tags) == 0 {
 						m.state = stateFormTime
 						m.timeInput.Focus()

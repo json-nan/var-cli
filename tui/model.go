@@ -5,10 +5,17 @@ import (
 	"strconv"
 	"time"
 
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"var-cli/api"
 	"var-cli/config"
+)
+
+const (
+	targetDayMinutes  = 480  // 8 hours
+	targetWeekMinutes = 2640 // 44 hours
 )
 
 type sessionState int
@@ -26,6 +33,8 @@ const (
 	stateFormTime
 	stateFormBillable
 	stateFormSaving
+	stateDeletingConfirm
+	stateDeleting
 )
 
 type configLoadedMsg config.AppConfig
@@ -52,46 +61,73 @@ type entryErrorMsg struct {
 	Err error
 }
 
-type trackerModel struct {
-	state      sessionState
-	appConfig  config.AppConfig
-	apiClient  *api.Client
-	tokenInput textinput.Model
+type entryDeletedMsg struct{}
+type deleteErrorMsg struct {
+	Err error
+}
 
+type trackerModel struct {
+	state     sessionState
+	appConfig config.AppConfig
+	apiClient *api.Client
+
+	// Inputs
+	tokenInput textinput.Model
+	dateInput  textinput.Model
+	descInput  textinput.Model
+	timeInput  textinput.Model
+
+	// Spinner for loading states
+	spinner spinner.Model
+
+	// Progress bars
+	dayProgress  progress.Model
+	weekProgress progress.Model
+
+	// Data
 	profile  *api.Profile
 	entries  []api.TimeEntry
 	projects []api.Project
 	tags     []api.Tag
 
+	// View state
 	showAllEntries bool
+	entryCursor    int // for deletion selection
+	deleteConfirm  bool
 
+	// Form state
+	formProjectCursor int
+	formTagCursor     int
+	formSelectedTags  map[int]bool
+	formBillable      bool
+
+	// Frequencies
 	frequentProjectCount int
 	frequentTagCount     int
 
-	currentVersion string
-	latestVersion  string
-	latestURL      string
+	// Version / update
+	currentVersion  string
+	latestVersion   string
+	latestURL       string
 	updateAvailable bool
 	updateError     error
 
+	// Terminal width
+	width int
+
+	// Error / loading
 	err     error
 	loading string
-
-	// Form inputs
-	dateInput textinput.Model
-	descInput textinput.Model
-	timeInput textinput.Model
-
-	// Form selection state
-	formProjectCursor int
-	formTagCursor     int
-	formSelectedTags  map[int]bool // tagID -> selected
-	formBillable      bool
 }
 
 func NewModel(version string) trackerModel {
+	s := spinner.New(spinner.WithSpinner(spinner.Line))
+
+	dp := progress.New(progress.WithWidth(40), progress.WithDefaultBlend(), progress.WithoutPercentage())
+	wp := progress.New(progress.WithWidth(40), progress.WithDefaultBlend(), progress.WithoutPercentage())
+
 	ti := textinput.New()
-	ti.Placeholder = "Pega tu API Token aquí..."
+	ti.Placeholder = "Pega tu API Token aqui..."
 	ti.Focus()
 	ti.EchoMode = textinput.EchoPassword
 	ti.EchoCharacter = '•'
@@ -103,7 +139,7 @@ func NewModel(version string) trackerModel {
 	dateIn.SetValue(now)
 
 	descIn := textinput.New()
-	descIn.Placeholder = "Descripción del trabajo realizado..."
+	descIn.Placeholder = "Descripcion del trabajo realizado..."
 
 	timeIn := textinput.New()
 	timeIn.Placeholder = "60"
@@ -114,18 +150,24 @@ func NewModel(version string) trackerModel {
 		dateInput:      dateIn,
 		descInput:      descIn,
 		timeInput:      timeIn,
+		spinner:        s,
+		dayProgress:    dp,
+		weekProgress:   wp,
 		currentVersion: version,
 	}
 }
 
 func (m trackerModel) Init() tea.Cmd {
-	return func() tea.Msg {
-		cfg, err := config.Load()
-		if err != nil || cfg.APIToken == "" {
-			return configErrorMsg{}
-		}
-		return configLoadedMsg(cfg)
-	}
+	return tea.Batch(
+		func() tea.Msg { return m.spinner.Tick() },
+		func() tea.Msg {
+			cfg, err := config.Load()
+			if err != nil || cfg.APIToken == "" {
+				return configErrorMsg{}
+			}
+			return configLoadedMsg(cfg)
+		},
+	)
 }
 
 func verifyTokenCmd(client *api.Client) tea.Cmd {
@@ -178,6 +220,16 @@ func createEntryCmd(client *api.Client, entry api.NewTimeEntry) tea.Cmd {
 			return entryErrorMsg{Err: err}
 		}
 		return entryCreatedMsg{}
+	}
+}
+
+func deleteEntryCmd(client *api.Client, id int) tea.Cmd {
+	return func() tea.Msg {
+		err := client.DeleteTimeEntry(id)
+		if err != nil {
+			return deleteErrorMsg{Err: err}
+		}
+		return entryDeletedMsg{}
 	}
 }
 
