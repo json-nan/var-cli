@@ -38,6 +38,7 @@ var (
 	updateStyle        = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 	boxStyle           = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorBorder).Padding(1, 2)
 	progressLabelStyle = lipgloss.NewStyle().Foreground(colorFg).Bold(true)
+	flashStyle         = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
 )
 
 func formatMinutes(minutes int) string {
@@ -181,6 +182,13 @@ func (m trackerModel) renderLoading(text string) string {
 	b.WriteString(titleStyle.Render("VAR CLI") + "\n\n")
 	b.WriteString(m.spinner.View() + " " + text)
 	return b.String()
+}
+
+func (m trackerModel) renderFlash() string {
+	if m.flash == "" {
+		return ""
+	}
+	return flashStyle.Render(m.flash) + "\n\n"
 }
 
 func (m trackerModel) renderLogin() string {
@@ -489,27 +497,91 @@ func formFooter() string {
 func (m trackerModel) renderFormDate() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
+	b.WriteString(m.renderFlash())
 	b.WriteString(formHeader(1, 6, "Nueva Entrada"))
 	b.WriteString("Fecha (YYYY-MM-DD):\n\n")
 	b.WriteString(m.dateInput.View() + "\n")
-	b.WriteString(formFooter())
+
+	emptyDays := m.emptyDays()
+	if len(emptyDays) > 0 {
+		b.WriteString("\n" + sectionStyle.Render("Dias sin completar:") + "\n")
+		for i, d := range emptyDays {
+			b.WriteString(m.renderEmptyDayItem(d, i) + "\n")
+		}
+		b.WriteString("\n" + helpStyle.Render("↑/↓ seleccionar dia  Enter continuar  Esc cancelar"))
+	} else {
+		b.WriteString(formFooter())
+	}
 	return b.String()
+}
+
+func (m trackerModel) renderEmptyDayItem(date string, idx int) string {
+	t, _ := time.Parse("2006-01-02", date)
+	dn := dayName(date)
+	minutes := 0
+	for _, e := range m.entries {
+		if e.Date == date {
+			minutes += e.Minutes
+		}
+	}
+	target := targetMinutesForWeekday(t.Weekday())
+	label := fmt.Sprintf("%s %s  (%s / %s)", dn, date, formatMinutes(minutes), formatMinutes(target))
+	if idx == m.formEmptyDayCursor {
+		return cursorStyle.Render(" > ") + labelStyle.Render(label)
+	}
+	return "   " + labelStyle.Render(label)
 }
 
 func (m trackerModel) renderFormDescription() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
+	b.WriteString(m.renderFlash())
 	b.WriteString(formHeader(2, 6, "Nueva Entrada"))
 	b.WriteString("Descripcion:\n\n")
 	b.WriteString(m.descInput.View() + "\n")
-	b.WriteString(formFooter())
+
+	suggestions := m.descSuggestions()
+	if len(suggestions) > 0 {
+		b.WriteString("\n" + sectionStyle.Render("Sugerencias:") + "\n")
+		for i, e := range suggestions {
+			b.WriteString(m.renderDescSuggestion(e, i) + "\n")
+		}
+		b.WriteString("\n" + helpStyle.Render("↑/↓ seleccionar  Enter autocompletar  Esc volver"))
+	} else {
+		b.WriteString("\n" + helpStyle.Render("Enter continuar  Esc volver"))
+	}
 	return b.String()
+}
+
+func (m trackerModel) renderDescSuggestion(e api.TimeEntry, idx int) string {
+	desc := e.Description
+	if len(desc) > 40 {
+		desc = desc[:37] + "..."
+	}
+	parts := []string{
+		fmt.Sprintf("[%s] %s", e.Project.Name, desc),
+		formatMinutes(e.Minutes),
+	}
+	if e.IsBillable {
+		parts = append(parts, billableStyle.Render("$"))
+	}
+	line := strings.Join(parts, "  ")
+	if idx == m.formDescSuggestionCursor {
+		return cursorStyle.Render(" > ") + line
+	}
+	return "   " + line
 }
 
 func (m trackerModel) renderFormProject() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
+	b.WriteString(m.renderFlash())
 	b.WriteString(formHeader(3, 6, "Nueva Entrada"))
+
+	if len(m.projects) > 0 {
+		selected := m.projects[m.formProjectCursor].Name
+		b.WriteString(labelStyle.Render("Proyecto seleccionado: ") + selected + "\n\n")
+	}
 	b.WriteString("Selecciona el proyecto:\n\n")
 
 	if len(m.projects) == 0 {
@@ -531,7 +603,7 @@ func (m trackerModel) renderFormProject() string {
 		}
 	}
 
-	b.WriteString(formFooter())
+	b.WriteString("\n" + helpStyle.Render("↑/↓ navegar  Enter continuar  Esc volver"))
 	return b.String()
 }
 
@@ -546,7 +618,23 @@ func (m trackerModel) renderProjectItem(i int) string {
 func (m trackerModel) renderFormTags() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
+	b.WriteString(m.renderFlash())
 	b.WriteString(formHeader(4, 6, "Nueva Entrada"))
+
+	var selectedTagNames []string
+	for id := range m.formSelectedTags {
+		for _, t := range m.tags {
+			if t.ID == id {
+				selectedTagNames = append(selectedTagNames, t.Name)
+				break
+			}
+		}
+	}
+	if len(selectedTagNames) > 0 {
+		b.WriteString(labelStyle.Render("Etiquetas seleccionadas: ") + strings.Join(selectedTagNames, ", ") + "\n\n")
+	} else {
+		b.WriteString(labelStyle.Render("Etiquetas seleccionadas: ") + "Ninguna" + "\n\n")
+	}
 	b.WriteString("Selecciona las etiquetas (Espacio para marcar):\n\n")
 
 	if len(m.tags) == 0 {
@@ -568,7 +656,7 @@ func (m trackerModel) renderFormTags() string {
 		}
 	}
 
-	b.WriteString("\n" + helpStyle.Render("Espacio marcar/desmarcar  Enter continuar  Esc cancelar"))
+	b.WriteString("\n" + helpStyle.Render("Espacio marcar/desmarcar  Enter continuar  Esc volver"))
 	return b.String()
 }
 
@@ -590,18 +678,32 @@ func (m trackerModel) renderTagItem(i int) string {
 func (m trackerModel) renderFormTime() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
+	b.WriteString(m.renderFlash())
 	b.WriteString(formHeader(5, 6, "Nueva Entrada"))
-	b.WriteString("Tiempo en minutos:\n\n")
+
+	if val := m.timeInput.Value(); val != "" {
+		if minutes, err := parseTimeInput(val); err == nil {
+			b.WriteString(labelStyle.Render("Tiempo seleccionado: ") + formatMinutes(minutes) + "\n\n")
+		}
+	}
+	b.WriteString("Duracion:\n\n")
 	b.WriteString(m.timeInput.View() + "\n")
-	b.WriteString(labelStyle.Render("Ejemplos: 30, 60, 90, 480") + "\n")
-	b.WriteString(formFooter())
+	b.WriteString(labelStyle.Render("Ejemplos: 30m, 1h, 1h30m, 5h, 5:30, 480") + "\n")
+	b.WriteString("\n" + helpStyle.Render("Enter continuar  Esc volver"))
 	return b.String()
 }
 
 func (m trackerModel) renderFormBillable() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
+	b.WriteString(m.renderFlash())
 	b.WriteString(formHeader(6, 6, "Nueva Entrada"))
+
+	current := "NO"
+	if m.formBillable {
+		current = "SI"
+	}
+	b.WriteString(labelStyle.Render("Facturable: ") + current + "\n\n")
 	b.WriteString("Es facturable?\n\n")
 
 	noStyle := labelStyle
@@ -613,6 +715,6 @@ func (m trackerModel) renderFormBillable() string {
 	}
 
 	b.WriteString(noStyle.Render("  NO  ") + "    " + yesStyle.Render("  SI  ") + "\n")
-	b.WriteString("\n" + helpStyle.Render("<-- --> para cambiar  Enter guardar  Esc cancelar"))
+	b.WriteString("\n" + helpStyle.Render("<-- --> para cambiar  Enter guardar  Esc volver"))
 	return b.String()
 }

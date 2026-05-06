@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/progress"
@@ -106,10 +109,12 @@ type trackerModel struct {
 	deleteConfirm  bool
 
 	// Form state
-	formProjectCursor int
-	formTagCursor     int
-	formSelectedTags  map[int]bool
-	formBillable      bool
+	formProjectCursor        int
+	formTagCursor            int
+	formSelectedTags         map[int]bool
+	formBillable             bool
+	formEmptyDayCursor       int
+	formDescSuggestionCursor int
 
 	// Frequencies
 	frequentProjectCount int
@@ -125,9 +130,10 @@ type trackerModel struct {
 	// Terminal width
 	width int
 
-	// Error / loading
+	// Error / loading / flash
 	err     error
 	loading string
+	flash   string
 }
 
 func NewModel(version string) trackerModel {
@@ -260,8 +266,21 @@ func (m *trackerModel) resetForm() {
 	m.formProjectCursor = 0
 	m.formTagCursor = 0
 	m.formSelectedTags = make(map[int]bool)
-	m.formBillable = false
+	m.formBillable = true
+	m.formEmptyDayCursor = -1
+	m.formDescSuggestionCursor = -1
 	m.updateError = nil
+	m.flash = ""
+}
+
+func (m *trackerModel) quickReset() {
+	m.descInput.SetValue("")
+	m.timeInput.SetValue("")
+	m.formTagCursor = 0
+	m.formSelectedTags = make(map[int]bool)
+	m.formBillable = true
+	m.formDescSuggestionCursor = -1
+	m.flash = "Entrada creada. Puedes agregar otra."
 }
 
 func (m *trackerModel) computeFrequencies() {
@@ -324,8 +343,103 @@ func (m trackerModel) displayEntries() []api.TimeEntry {
 	return filtered
 }
 
+func (m trackerModel) emptyDays() []string {
+	now := time.Now()
+	today := now.Format("2006-01-02")
+
+	startDate, endDate := getTwoWeekRange()
+	start, _ := time.Parse("2006-01-02", startDate)
+	end, _ := time.Parse("2006-01-02", endDate)
+
+	dateMinutes := make(map[string]int)
+	for _, e := range m.entries {
+		dateMinutes[e.Date] += e.Minutes
+	}
+
+	var days []string
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		dateStr := d.Format("2006-01-02")
+		wd := d.Weekday()
+		if wd == time.Saturday || wd == time.Sunday {
+			continue
+		}
+		if dateStr > today {
+			continue
+		}
+		target := targetMinutesForWeekday(wd)
+		if dateMinutes[dateStr] < target {
+			days = append(days, dateStr)
+		}
+	}
+
+	// newest first
+	sort.Slice(days, func(i, j int) bool {
+		return days[i] > days[j]
+	})
+	return days
+}
+
+func (m trackerModel) descSuggestions() []api.TimeEntry {
+	query := strings.ToLower(strings.TrimSpace(m.descInput.Value()))
+	if query == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var results []api.TimeEntry
+	for _, e := range m.entries {
+		if !strings.Contains(strings.ToLower(e.Description), query) {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(e.Description))
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		results = append(results, e)
+		if len(results) >= 5 {
+			break
+		}
+	}
+	return results
+}
+
+func parseTimeInput(input string) (int, error) {
+	input = strings.TrimSpace(strings.ToLower(input))
+	if input == "" {
+		return 0, fmt.Errorf("empty input")
+	}
+
+	// Try plain integer first (backwards compatible)
+	if n, err := strconv.Atoi(input); err == nil {
+		return n, nil
+	}
+
+	// Pattern: optional hours with h, optional minutes with m
+	// e.g. "5h30m", "1h", "30m", "5h 30m", "5:30"
+	re := regexp.MustCompile(`^(?:(\d+)\s*[h:])?\s*(?:(\d+)\s*m?)?$`)
+	matches := re.FindStringSubmatch(input)
+	if matches == nil {
+		return 0, fmt.Errorf("invalid format")
+	}
+
+	minutes := 0
+	if matches[1] != "" {
+		h, _ := strconv.Atoi(matches[1])
+		minutes += h * 60
+	}
+	if matches[2] != "" {
+		m, _ := strconv.Atoi(matches[2])
+		minutes += m
+	}
+
+	if minutes == 0 {
+		return 0, fmt.Errorf("no time specified")
+	}
+	return minutes, nil
+}
+
 func (m *trackerModel) buildNewEntry() (api.NewTimeEntry, error) {
-	minutes, err := strconv.Atoi(m.timeInput.Value())
+	minutes, err := parseTimeInput(m.timeInput.Value())
 	if err != nil {
 		return api.NewTimeEntry{}, err
 	}

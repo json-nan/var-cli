@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"strconv"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -92,9 +93,9 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case entryCreatedMsg:
-		m.resetForm()
-		m.state = stateLoadingData
-		m.loading = "Recargando entradas..."
+		m.quickReset()
+		m.state = stateFormDescription
+		m.descInput.Focus()
 		return m, loadDataCmd(m.apiClient)
 
 	case entryErrorMsg:
@@ -248,24 +249,91 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case stateFormDate:
+			m.flash = ""
 			if msg.String() == "esc" {
 				m.state = stateEntries
 				return m, nil
 			}
-			if msg.String() == "enter" {
+			emptyDays := m.emptyDays()
+			switch msg.String() {
+			case "enter":
 				m.state = stateFormDescription
 				m.descInput.Focus()
+				return m, nil
+			case "up", "k":
+				if len(emptyDays) > 0 {
+					if m.formEmptyDayCursor < 0 {
+						m.formEmptyDayCursor = 0
+					} else if m.formEmptyDayCursor > 0 {
+						m.formEmptyDayCursor--
+					}
+					m.dateInput.SetValue(emptyDays[m.formEmptyDayCursor])
+				}
+				return m, nil
+			case "down", "j":
+				if len(emptyDays) > 0 {
+					if m.formEmptyDayCursor < len(emptyDays)-1 {
+						m.formEmptyDayCursor++
+					} else if m.formEmptyDayCursor < 0 {
+						m.formEmptyDayCursor = 0
+					}
+					m.dateInput.SetValue(emptyDays[m.formEmptyDayCursor])
+				}
 				return m, nil
 			}
 			m.dateInput, cmd = m.dateInput.Update(msg)
 			return m, cmd
 
 		case stateFormDescription:
+			m.flash = ""
 			if msg.String() == "esc" {
-				m.state = stateEntries
+				if m.formDescSuggestionCursor >= 0 {
+					m.formDescSuggestionCursor = -1
+					return m, nil
+				}
+				m.state = stateFormDate
+				m.dateInput.Focus()
 				return m, nil
 			}
-			if msg.String() == "enter" {
+			suggestions := m.descSuggestions()
+			switch msg.String() {
+			case "up", "k":
+				if len(suggestions) > 0 {
+					if m.formDescSuggestionCursor > 0 {
+						m.formDescSuggestionCursor--
+					} else if m.formDescSuggestionCursor < 0 {
+						m.formDescSuggestionCursor = len(suggestions) - 1
+					}
+				}
+				return m, nil
+			case "down", "j":
+				if len(suggestions) > 0 {
+					if m.formDescSuggestionCursor < len(suggestions)-1 {
+						m.formDescSuggestionCursor++
+					} else if m.formDescSuggestionCursor < 0 {
+						m.formDescSuggestionCursor = 0
+					}
+				}
+				return m, nil
+			case "enter":
+				if m.formDescSuggestionCursor >= 0 && m.formDescSuggestionCursor < len(suggestions) {
+					// Apply suggestion but follow normal flow
+					e := suggestions[m.formDescSuggestionCursor]
+					m.descInput.SetValue(e.Description)
+					for i, p := range m.projects {
+						if p.ID == e.Project.ID {
+							m.formProjectCursor = i
+							break
+						}
+					}
+					m.formSelectedTags = make(map[int]bool)
+					for _, t := range e.Tags {
+						m.formSelectedTags[t.ID] = true
+					}
+					m.timeInput.SetValue(strconv.Itoa(e.Minutes))
+					m.formBillable = e.IsBillable
+				}
+				m.formDescSuggestionCursor = -1
 				if len(m.projects) == 0 {
 					if len(m.tags) == 0 {
 						m.state = stateFormTime
@@ -279,11 +347,14 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.descInput, cmd = m.descInput.Update(msg)
+			m.formDescSuggestionCursor = -1
 			return m, cmd
 
 		case stateFormProject:
+			m.flash = ""
 			if msg.String() == "esc" {
-				m.state = stateEntries
+				m.state = stateFormDescription
+				m.descInput.Focus()
 				return m, nil
 			}
 			switch msg.String() {
@@ -306,8 +377,9 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case stateFormTags:
+			m.flash = ""
 			if msg.String() == "esc" {
-				m.state = stateEntries
+				m.state = stateFormProject
 				return m, nil
 			}
 			switch msg.String() {
@@ -338,8 +410,16 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case stateFormTime:
+			m.flash = ""
 			if msg.String() == "esc" {
-				m.state = stateEntries
+				if len(m.tags) > 0 {
+					m.state = stateFormTags
+				} else if len(m.projects) > 0 {
+					m.state = stateFormProject
+				} else {
+					m.state = stateFormDescription
+					m.descInput.Focus()
+				}
 				return m, nil
 			}
 			if msg.String() == "enter" {
@@ -350,8 +430,10 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 
 		case stateFormBillable:
+			m.flash = ""
 			if msg.String() == "esc" {
-				m.state = stateEntries
+				m.state = stateFormTime
+				m.timeInput.Focus()
 				return m, nil
 			}
 			switch msg.String() {
