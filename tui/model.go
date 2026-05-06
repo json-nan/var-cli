@@ -14,9 +14,19 @@ import (
 )
 
 const (
-	targetDayMinutes  = 480  // 8 hours
-	targetWeekMinutes = 2640 // 44 hours
+	targetWeekMinutes = 2640 // 44 hours (Mon 9h + Tue 9h + Wed 9h + Thu 9h + Fri 8h)
 )
+
+func targetMinutesForWeekday(wd time.Weekday) int {
+	switch wd {
+	case time.Monday, time.Tuesday, time.Wednesday, time.Thursday:
+		return 540 // 9 hours
+	case time.Friday:
+		return 480 // 8 hours
+	default:
+		return 0 // weekends not tracked
+	}
+}
 
 type sessionState int
 
@@ -182,8 +192,18 @@ func verifyTokenCmd(client *api.Client) tea.Cmd {
 
 func getTwoWeekRange() (string, string) {
 	now := time.Now()
-	start := now.AddDate(0, 0, -13)
-	return start.Format("2006-01-02"), now.Format("2006-01-02")
+
+	// Days since Monday of current week
+	daysSinceMonday := int(now.Weekday()) - int(time.Monday)
+	if daysSinceMonday < 0 {
+		daysSinceMonday += 7
+	}
+
+	mondayCurrent := now.AddDate(0, 0, -daysSinceMonday)
+	start := mondayCurrent.AddDate(0, 0, -7) // Monday of past week
+	end := mondayCurrent.AddDate(0, 0, 6)    // Sunday of current week
+
+	return start.Format("2006-01-02"), end.Format("2006-01-02")
 }
 
 func loadDataCmd(client *api.Client) tea.Cmd {

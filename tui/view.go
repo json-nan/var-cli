@@ -199,8 +199,8 @@ func (m trackerModel) renderEntriesView() string {
 	var b strings.Builder
 	entries := m.displayEntries()
 
-	// Header with profile
-	b.WriteString(m.renderHeader() + "\n")
+	// Persistent summary (header + progress + week days)
+	b.WriteString(m.renderPersistentSummary() + "\n")
 
 	// Update banner
 	if m.updateAvailable {
@@ -208,9 +208,6 @@ func (m trackerModel) renderEntriesView() string {
 	} else if m.updateError != nil {
 		b.WriteString(errorStyle.Render(fmt.Sprintf("Error al buscar actualizaciones: %v", m.updateError)) + "\n")
 	}
-
-	// Progress section
-	b.WriteString(m.renderProgressSection() + "\n")
 
 	// Filter label
 	if m.showAllEntries {
@@ -270,18 +267,25 @@ func (m trackerModel) renderProgressSection() string {
 	billMin := billableMinutes(m.entries)
 	totalMin := totalMinutes(m.entries)
 
-	// Day progress
-	dayPct := float64(todayMin) / float64(targetDayMinutes)
-	if dayPct > 1 {
-		dayPct = 1
+	// Day progress (per-day target based on weekday)
+	now := time.Now()
+	todayTarget := targetMinutesForWeekday(now.Weekday())
+	if todayTarget == 0 {
+		// weekend
+		b.WriteString(progressLabelStyle.Render(fmt.Sprintf("Hoy:  %s (fin de semana)", formatMinutes(todayMin))) + "\n")
+	} else {
+		dayPct := float64(todayMin) / float64(todayTarget)
+		if dayPct > 1 {
+			dayPct = 1
+		}
+		dayBar := m.dayProgress.ViewAs(dayPct)
+		dayLabel := fmt.Sprintf("Hoy:  %s / %s", formatMinutes(todayMin), formatMinutes(todayTarget))
+		if todayMin > todayTarget {
+			dayLabel = fmt.Sprintf("Hoy:  %s / %s  (%s extra)", formatMinutes(todayMin), formatMinutes(todayTarget), formatMinutes(todayMin-todayTarget))
+		}
+		b.WriteString(progressLabelStyle.Render(dayLabel) + "\n")
+		b.WriteString(dayBar + "\n")
 	}
-	dayBar := m.dayProgress.ViewAs(dayPct)
-	dayLabel := fmt.Sprintf("Hoy:  %s / %s", formatMinutes(todayMin), formatMinutes(targetDayMinutes))
-	if todayMin > targetDayMinutes {
-		dayLabel = fmt.Sprintf("Hoy:  %s / %s  (%s extra)", formatMinutes(todayMin), formatMinutes(targetDayMinutes), formatMinutes(todayMin-targetDayMinutes))
-	}
-	b.WriteString(progressLabelStyle.Render(dayLabel) + "\n")
-	b.WriteString(dayBar + "\n")
 
 	// Week progress
 	weekPct := float64(weekMin) / float64(targetWeekMinutes)
@@ -301,6 +305,69 @@ func (m trackerModel) renderProgressSection() string {
 		b.WriteString(billableStyle.Render(fmt.Sprintf("Facturable: %s  Total: %s", formatMinutes(billMin), formatMinutes(totalMin))) + "\n")
 	}
 
+	return b.String()
+}
+
+func (m trackerModel) renderWeekDays() string {
+	now := time.Now()
+	weekStart := now.AddDate(0, 0, -int(now.Weekday())+1)
+	if now.Weekday() == time.Sunday {
+		weekStart = now.AddDate(0, 0, -6)
+	}
+
+	dayNames := []string{"Lun", "Mar", "Mie", "Jue", "Vie"}
+	today := now.Format("2006-01-02")
+
+	dateMinutes := make(map[string]int)
+	for _, e := range m.entries {
+		dateMinutes[e.Date] += e.Minutes
+	}
+
+	var dayBoxes []string
+	for i := 0; i < 5; i++ {
+		date := weekStart.AddDate(0, 0, i).Format("2006-01-02")
+		minutes := dateMinutes[date]
+		name := dayNames[i]
+		isToday := date == today
+		target := targetMinutesForWeekday(time.Weekday(i + 1)) // Mon=1 ... Fri=5
+		isFilled := minutes >= target
+
+		timeStr := "-"
+		if minutes > 0 {
+			h := minutes / 60
+			min := minutes % 60
+			if minutes < 60 {
+				timeStr = fmt.Sprintf("%dm", minutes)
+			} else if min == 0 {
+				timeStr = fmt.Sprintf("%dh", h)
+			} else {
+				timeStr = fmt.Sprintf("%d:%02d", h, min)
+			}
+		}
+
+		style := lipgloss.NewStyle().Width(6).Align(lipgloss.Center)
+		if isToday {
+			style = style.Foreground(colorHighlight).Bold(true)
+		} else if isFilled {
+			style = style.Foreground(colorSecondary)
+		} else if minutes > 0 {
+			style = style.Foreground(colorFg)
+		} else {
+			style = style.Foreground(colorMuted)
+		}
+
+		content := fmt.Sprintf("%s\n%s", name, timeStr)
+		dayBoxes = append(dayBoxes, style.Render(content))
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, dayBoxes...)
+}
+
+func (m trackerModel) renderPersistentSummary() string {
+	var b strings.Builder
+	b.WriteString(m.renderHeader() + "\n")
+	b.WriteString(m.renderProgressSection())
+	b.WriteString(m.renderWeekDays() + "\n")
 	return b.String()
 }
 
@@ -404,7 +471,7 @@ func sortedDates(grouped map[string][]api.TimeEntry) []string {
 	for d := range grouped {
 		dates = append(dates, d)
 	}
-	sort.Strings(dates)
+	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
 	return dates
 }
 
@@ -421,6 +488,7 @@ func formFooter() string {
 
 func (m trackerModel) renderFormDate() string {
 	var b strings.Builder
+	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(formHeader(1, 6, "Nueva Entrada"))
 	b.WriteString("Fecha (YYYY-MM-DD):\n\n")
 	b.WriteString(m.dateInput.View() + "\n")
@@ -430,6 +498,7 @@ func (m trackerModel) renderFormDate() string {
 
 func (m trackerModel) renderFormDescription() string {
 	var b strings.Builder
+	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(formHeader(2, 6, "Nueva Entrada"))
 	b.WriteString("Descripcion:\n\n")
 	b.WriteString(m.descInput.View() + "\n")
@@ -439,6 +508,7 @@ func (m trackerModel) renderFormDescription() string {
 
 func (m trackerModel) renderFormProject() string {
 	var b strings.Builder
+	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(formHeader(3, 6, "Nueva Entrada"))
 	b.WriteString("Selecciona el proyecto:\n\n")
 
@@ -475,6 +545,7 @@ func (m trackerModel) renderProjectItem(i int) string {
 
 func (m trackerModel) renderFormTags() string {
 	var b strings.Builder
+	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(formHeader(4, 6, "Nueva Entrada"))
 	b.WriteString("Selecciona las etiquetas (Espacio para marcar):\n\n")
 
@@ -518,6 +589,7 @@ func (m trackerModel) renderTagItem(i int) string {
 
 func (m trackerModel) renderFormTime() string {
 	var b strings.Builder
+	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(formHeader(5, 6, "Nueva Entrada"))
 	b.WriteString("Tiempo en minutos:\n\n")
 	b.WriteString(m.timeInput.View() + "\n")
@@ -528,6 +600,7 @@ func (m trackerModel) renderFormTime() string {
 
 func (m trackerModel) renderFormBillable() string {
 	var b strings.Builder
+	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(formHeader(6, 6, "Nueva Entrada"))
 	b.WriteString("Es facturable?\n\n")
 

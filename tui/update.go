@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -71,6 +72,12 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dataLoadedMsg:
 		m.entries = msg.Entries
+		sort.Slice(m.entries, func(i, j int) bool {
+			if m.entries[i].Date != m.entries[j].Date {
+				return m.entries[i].Date > m.entries[j].Date
+			}
+			return m.entries[i].ID > m.entries[j].ID
+		})
 		m.projects = msg.Projects
 		m.tags = msg.Tags
 		m.computeFrequencies()
