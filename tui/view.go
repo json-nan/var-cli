@@ -39,6 +39,7 @@ var (
 	boxStyle           = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorBorder).Padding(1, 2)
 	progressLabelStyle = lipgloss.NewStyle().Foreground(colorFg).Bold(true)
 	flashStyle         = lipgloss.NewStyle().Foreground(colorSecondary).Bold(true)
+	extraStyle         = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 )
 
 func formatMinutes(minutes int) string {
@@ -46,6 +47,17 @@ func formatMinutes(minutes int) string {
 	m := minutes % 60
 	if h > 0 && m > 0 {
 		return fmt.Sprintf("%dh %dm", h, m)
+	} else if h > 0 {
+		return fmt.Sprintf("%dh", h)
+	}
+	return fmt.Sprintf("%dm", m)
+}
+
+func formatShortTime(minutes int) string {
+	h := minutes / 60
+	m := minutes % 60
+	if h > 0 && m > 0 {
+		return fmt.Sprintf("%d:%02d", h, m)
 	} else if h > 0 {
 		return fmt.Sprintf("%dh", h)
 	}
@@ -87,6 +99,22 @@ func (m trackerModel) getTagNames(tags []api.Tag) string {
 	return strings.Join(names, ", ")
 }
 
+var excludedGoalTagIDs = map[int]bool{
+	3:   true, // Freelance
+	104: true, // Overtime
+	105: true, // Overtime
+	106: true, // Overtime
+}
+
+func entryHasExcludedTag(e api.TimeEntry) bool {
+	for _, t := range e.Tags {
+		if excludedGoalTagIDs[t.ID] {
+			return true
+		}
+	}
+	return false
+}
+
 func totalMinutes(entries []api.TimeEntry) int {
 	total := 0
 	for _, e := range entries {
@@ -116,6 +144,17 @@ func todayMinutes(entries []api.TimeEntry) int {
 	return total
 }
 
+func todayGoalMinutes(entries []api.TimeEntry) int {
+	today := time.Now().Format("2006-01-02")
+	total := 0
+	for _, e := range entries {
+		if e.Date == today && !entryHasExcludedTag(e) {
+			total += e.Minutes
+		}
+	}
+	return total
+}
+
 func weekMinutes(entries []api.TimeEntry) int {
 	now := time.Now()
 	weekStart := now.AddDate(0, 0, -int(now.Weekday())+1)
@@ -126,6 +165,32 @@ func weekMinutes(entries []api.TimeEntry) int {
 	total := 0
 	for _, e := range entries {
 		if e.Date >= startStr {
+			total += e.Minutes
+		}
+	}
+	return total
+}
+
+func weekGoalMinutes(entries []api.TimeEntry) int {
+	now := time.Now()
+	weekStart := now.AddDate(0, 0, -int(now.Weekday())+1)
+	if now.Weekday() == time.Sunday {
+		weekStart = now.AddDate(0, 0, -6)
+	}
+	startStr := weekStart.Format("2006-01-02")
+	total := 0
+	for _, e := range entries {
+		if e.Date >= startStr && !entryHasExcludedTag(e) {
+			total += e.Minutes
+		}
+	}
+	return total
+}
+
+func extraMinutes(entries []api.TimeEntry) int {
+	total := 0
+	for _, e := range entries {
+		if entryHasExcludedTag(e) {
 			total += e.Minutes
 		}
 	}
@@ -270,10 +335,11 @@ func (m trackerModel) renderHeader() string {
 func (m trackerModel) renderProgressSection() string {
 	var b strings.Builder
 
-	todayMin := todayMinutes(m.entries)
-	weekMin := weekMinutes(m.entries)
-	billMin := billableMinutes(m.entries)
-	totalMin := totalMinutes(m.entries)
+	todayMin := todayGoalMinutes(m.entries)
+	weekMin := weekGoalMinutes(m.entries)
+	// billMin := billableMinutes(m.entries)
+	// totalMin := totalMinutes(m.entries)
+	extraMin := extraMinutes(m.entries)
 
 	// Day progress (per-day target based on weekday)
 	now := time.Now()
@@ -308,10 +374,15 @@ func (m trackerModel) renderProgressSection() string {
 	b.WriteString(progressLabelStyle.Render(weekLabel) + "\n")
 	b.WriteString(weekBar + "\n")
 
-	// Billable summary
-	if billMin > 0 {
-		b.WriteString(billableStyle.Render(fmt.Sprintf("Facturable: %s  Total: %s", formatMinutes(billMin), formatMinutes(totalMin))) + "\n")
+	// Extra / Freelance / Overtime line
+	if extraMin > 0 {
+		b.WriteString(extraStyle.Render(fmt.Sprintf("Extra: %s", formatMinutes(extraMin))) + "\n")
 	}
+
+	// Billable summary
+	// if billMin > 0 {
+	// 	b.WriteString(billableStyle.Render(fmt.Sprintf("Facturable: %s  Total: %s", formatMinutes(billMin), formatMinutes(totalMin))) + "\n")
+	// }
 
 	return b.String()
 }
@@ -326,46 +397,63 @@ func (m trackerModel) renderWeekDays() string {
 	dayNames := []string{"Lun", "Mar", "Mie", "Jue", "Vie"}
 	today := now.Format("2006-01-02")
 
-	dateMinutes := make(map[string]int)
+	dateGoalMinutes := make(map[string]int)
+	dateExtraMinutes := make(map[string]int)
 	for _, e := range m.entries {
-		dateMinutes[e.Date] += e.Minutes
+		if entryHasExcludedTag(e) {
+			dateExtraMinutes[e.Date] += e.Minutes
+		} else {
+			dateGoalMinutes[e.Date] += e.Minutes
+		}
 	}
 
 	var dayBoxes []string
 	for i := 0; i < 5; i++ {
 		date := weekStart.AddDate(0, 0, i).Format("2006-01-02")
-		minutes := dateMinutes[date]
+		goalMin := dateGoalMinutes[date]
+		extraMin := dateExtraMinutes[date]
 		name := dayNames[i]
 		isToday := date == today
-		target := targetMinutesForWeekday(time.Weekday(i + 1)) // Mon=1 ... Fri=5
-		isFilled := minutes >= target
+		target := targetMinutesForWeekday(time.Weekday(i + 1))
+		isFilled := goalMin >= target
 
-		timeStr := "-"
-		if minutes > 0 {
-			h := minutes / 60
-			min := minutes % 60
-			if minutes < 60 {
-				timeStr = fmt.Sprintf("%dm", minutes)
-			} else if min == 0 {
-				timeStr = fmt.Sprintf("%dh", h)
-			} else {
-				timeStr = fmt.Sprintf("%d:%02d", h, min)
-			}
+		goalStr := "-"
+		if goalMin > 0 {
+			goalStr = formatShortTime(goalMin)
 		}
 
-		style := lipgloss.NewStyle().Width(6).Align(lipgloss.Center)
+		var extraStr string
+		if extraMin > 0 {
+			extraStr = "+" + formatShortTime(extraMin)
+		}
+
+		nameStyle := lipgloss.NewStyle().Width(7).Align(lipgloss.Center)
+		goalStyle := lipgloss.NewStyle().Width(7).Align(lipgloss.Center)
 		if isToday {
-			style = style.Foreground(colorHighlight).Bold(true)
+			nameStyle = nameStyle.Foreground(colorHighlight).Bold(true)
+			goalStyle = goalStyle.Foreground(colorHighlight)
 		} else if isFilled {
-			style = style.Foreground(colorSecondary)
-		} else if minutes > 0 {
-			style = style.Foreground(colorFg)
+			nameStyle = nameStyle.Foreground(colorFg)
+			goalStyle = goalStyle.Foreground(colorSecondary)
+		} else if goalMin > 0 {
+			nameStyle = nameStyle.Foreground(colorFg)
+			goalStyle = goalStyle.Foreground(colorFg)
 		} else {
-			style = style.Foreground(colorMuted)
+			nameStyle = nameStyle.Foreground(colorMuted)
+			goalStyle = goalStyle.Foreground(colorMuted)
 		}
 
-		content := fmt.Sprintf("%s\n%s", name, timeStr)
-		dayBoxes = append(dayBoxes, style.Render(content))
+		nameLine := nameStyle.Render(name)
+		goalLine := goalStyle.Render(goalStr)
+
+		lines := []string{nameLine, goalLine}
+		if extraStr != "" {
+			extraLine := lipgloss.NewStyle().Width(7).Align(lipgloss.Center).Foreground(colorWarning).Render(extraStr)
+			lines = append(lines, extraLine)
+		}
+
+		box := lipgloss.JoinVertical(lipgloss.Center, lines...)
+		dayBoxes = append(dayBoxes, box)
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, dayBoxes...)
