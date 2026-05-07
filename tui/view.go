@@ -468,15 +468,24 @@ func (m trackerModel) renderPersistentSummary() string {
 }
 
 func (m trackerModel) renderDateHeader(date string, entries []api.TimeEntry) string {
-	dayTotal := 0
+	goalTotal := 0
+	extraTotal := 0
 	for _, e := range entries {
-		dayTotal += e.Minutes
+		if entryHasExcludedTag(e) {
+			extraTotal += e.Minutes
+		} else {
+			goalTotal += e.Minutes
+		}
 	}
+
 	dn := dayName(date)
 	today := time.Now().Format("2006-01-02")
 	isToday := date == today
 
-	text := fmt.Sprintf("%s  %s  (%s)", dn, date, formatMinutes(dayTotal))
+	text := fmt.Sprintf("%s  %s  (%s)", dn, date, formatMinutes(goalTotal))
+	if extraTotal > 0 {
+		text += extraStyle.Render(fmt.Sprintf(" +%s", formatMinutes(extraTotal)))
+	}
 	if isToday {
 		return dateHeaderStyle.Render("[ " + text + " ]")
 	}
