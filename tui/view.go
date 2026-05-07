@@ -549,6 +549,7 @@ func (m trackerModel) renderDeleteConfirm() string {
 func (m trackerModel) renderHelpBar() string {
 	var keys []string
 	keys = append(keys, "n nuevo")
+	keys = append(keys, "e editar")
 	keys = append(keys, "d eliminar")
 	if m.showAllEntries {
 		keys = append(keys, "a semana")
@@ -587,6 +588,13 @@ func formHeader(step, total int, title string) string {
 	return titleStyle.Render(title) + "  " + labelStyle.Render(progress) + "\n\n"
 }
 
+func (m trackerModel) formTitle() string {
+	if m.editingEntry != nil {
+		return fmt.Sprintf("Editando Entrada #%d", m.editingEntry.ID)
+	}
+	return "Nueva Entrada"
+}
+
 func formFooter() string {
 	return "\n" + helpStyle.Render("Enter continuar  Esc cancelar")
 }
@@ -595,7 +603,7 @@ func (m trackerModel) renderFormDate() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(m.renderFlash())
-	b.WriteString(formHeader(1, 6, "Nueva Entrada"))
+	b.WriteString(formHeader(1, 6, m.formTitle()))
 	b.WriteString("Fecha (YYYY-MM-DD):\n\n")
 	b.WriteString(m.dateInput.View() + "\n")
 
@@ -633,7 +641,7 @@ func (m trackerModel) renderFormDescription() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(m.renderFlash())
-	b.WriteString(formHeader(2, 6, "Nueva Entrada"))
+	b.WriteString(formHeader(2, 6, m.formTitle()))
 	b.WriteString("Descripcion:\n\n")
 	b.WriteString(m.descInput.View() + "\n")
 
@@ -673,7 +681,7 @@ func (m trackerModel) renderFormProject() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(m.renderFlash())
-	b.WriteString(formHeader(3, 6, "Nueva Entrada"))
+	b.WriteString(formHeader(3, 6, m.formTitle()))
 
 	if len(m.projects) > 0 {
 		selected := m.projects[m.formProjectCursor].Name
@@ -716,7 +724,7 @@ func (m trackerModel) renderFormTags() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(m.renderFlash())
-	b.WriteString(formHeader(4, 6, "Nueva Entrada"))
+	b.WriteString(formHeader(4, 6, m.formTitle()))
 
 	var selectedTagNames []string
 	for id := range m.formSelectedTags {
@@ -776,7 +784,7 @@ func (m trackerModel) renderFormTime() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(m.renderFlash())
-	b.WriteString(formHeader(5, 6, "Nueva Entrada"))
+	b.WriteString(formHeader(5, 6, m.formTitle()))
 
 	if val := m.timeInput.Value(); val != "" {
 		if minutes, err := parseTimeInput(val); err == nil {
@@ -794,7 +802,7 @@ func (m trackerModel) renderFormBillable() string {
 	var b strings.Builder
 	b.WriteString(m.renderPersistentSummary() + "\n")
 	b.WriteString(m.renderFlash())
-	b.WriteString(formHeader(6, 6, "Nueva Entrada"))
+	b.WriteString(formHeader(6, 6, m.formTitle()))
 
 	current := "NO"
 	if m.formBillable {

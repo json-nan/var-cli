@@ -98,7 +98,15 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.descInput.Focus()
 		return m, loadDataCmd(m.apiClient)
 
+	case entryUpdatedMsg:
+		m.editingEntry = nil
+		m.resetForm()
+		m.state = stateEntries
+		m.flash = "Entrada actualizada."
+		return m, loadDataCmd(m.apiClient)
+
 	case entryErrorMsg:
+		m.editingEntry = nil
 		m.err = msg.Err
 		m.state = stateEntries
 		return m, nil
@@ -188,6 +196,33 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resetForm()
 				m.state = stateFormDate
 				m.dateInput.Focus()
+				return m, nil
+			case "e":
+				disp := m.displayEntries()
+				if m.entryCursor < len(disp) {
+					entry := disp[m.entryCursor]
+					if !entry.IsEditable {
+						m.flash = "Esta entrada no se puede editar."
+						return m, nil
+					}
+					m.editingEntry = &entry
+					m.dateInput.SetValue(entry.Date)
+					m.descInput.SetValue(entry.Description)
+					for i, p := range m.projects {
+						if p.ID == entry.Project.ID {
+							m.formProjectCursor = i
+							break
+						}
+					}
+					m.formSelectedTags = make(map[int]bool)
+					for _, t := range entry.Tags {
+						m.formSelectedTags[t.ID] = true
+					}
+					m.timeInput.SetValue(formatTimeInput(entry.Minutes))
+					m.formBillable = entry.IsBillable
+					m.state = stateFormDate
+					m.dateInput.Focus()
+				}
 				return m, nil
 			case "a":
 				m.showAllEntries = !m.showAllEntries
@@ -447,6 +482,11 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.err = err
 					m.state = stateEntries
 					return m, nil
+				}
+				if m.editingEntry != nil {
+					m.state = stateFormSaving
+					m.loading = "Actualizando entrada..."
+					return m, updateEntryCmd(m.apiClient, m.editingEntry.ID, entry)
 				}
 				m.state = stateFormSaving
 				m.loading = "Guardando entrada..."

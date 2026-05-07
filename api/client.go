@@ -272,6 +272,23 @@ func (c *Client) CreateTimeEntry(entry NewTimeEntry) (*TimeEntry, error) {
 	return &created, nil
 }
 
+func (c *Client) UpdateTimeEntry(id int, entry NewTimeEntry) (*TimeEntry, error) {
+	resp, err := c.resty.NewRequest().
+		SetBody(entry).
+		Put(fmt.Sprintf("/time-entries/%d", id))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("failed to update time entry: %s", resp.Status())
+	}
+	updated, err := decodeObject[TimeEntry](resp.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode updated entry: %w", err)
+	}
+	return &updated, nil
+}
+
 func (c *Client) DeleteTimeEntry(id int) error {
 	resp, err := c.resty.NewRequest().
 		Delete(fmt.Sprintf("/time-entries/%d", id))

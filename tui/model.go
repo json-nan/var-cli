@@ -70,6 +70,7 @@ type dataErrorMsg struct {
 }
 
 type entryCreatedMsg struct{}
+type entryUpdatedMsg struct{}
 type entryErrorMsg struct {
 	Err error
 }
@@ -115,6 +116,9 @@ type trackerModel struct {
 	formBillable             bool
 	formEmptyDayCursor       int
 	formDescSuggestionCursor int
+
+	// Editing
+	editingEntry *api.TimeEntry
 
 	// Frequencies
 	frequentProjectCount int
@@ -249,6 +253,16 @@ func createEntryCmd(client *api.Client, entry api.NewTimeEntry) tea.Cmd {
 	}
 }
 
+func updateEntryCmd(client *api.Client, id int, entry api.NewTimeEntry) tea.Cmd {
+	return func() tea.Msg {
+		_, err := client.UpdateTimeEntry(id, entry)
+		if err != nil {
+			return entryErrorMsg{Err: err}
+		}
+		return entryUpdatedMsg{}
+	}
+}
+
 func deleteEntryCmd(client *api.Client, id int) tea.Cmd {
 	return func() tea.Msg {
 		err := client.DeleteTimeEntry(id)
@@ -269,6 +283,7 @@ func (m *trackerModel) resetForm() {
 	m.formBillable = true
 	m.formEmptyDayCursor = -1
 	m.formDescSuggestionCursor = -1
+	m.editingEntry = nil
 	m.updateError = nil
 	m.flash = ""
 }
@@ -280,6 +295,7 @@ func (m *trackerModel) quickReset() {
 	m.formSelectedTags = make(map[int]bool)
 	m.formBillable = true
 	m.formDescSuggestionCursor = -1
+	m.editingEntry = nil
 	m.flash = "Entrada creada. Puedes agregar otra."
 }
 
@@ -401,6 +417,17 @@ func (m trackerModel) descSuggestions() []api.TimeEntry {
 		}
 	}
 	return results
+}
+
+func formatTimeInput(minutes int) string {
+	h := minutes / 60
+	m := minutes % 60
+	if h > 0 && m > 0 {
+		return fmt.Sprintf("%dh%dm", h, m)
+	} else if h > 0 {
+		return fmt.Sprintf("%dh", h)
+	}
+	return fmt.Sprintf("%dm", m)
 }
 
 func parseTimeInput(input string) (int, error) {
