@@ -13,7 +13,8 @@ const (
 )
 
 type AppConfig struct {
-	APIToken string `json:"api_token"`
+	APIToken    string `json:"api_token"`
+	LastVersion string `json:"last_version,omitempty"`
 }
 
 func getPath() (string, error) {

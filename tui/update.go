@@ -82,9 +82,27 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.projects = msg.Projects
 		m.tags = msg.Tags
 		m.computeFrequencies()
-		m.state = stateEntries
 		m.err = nil
 		m.entryCursor = 0
+
+		// Check if we should show "What's New" after an update
+		if m.currentVersion != "dev" && m.currentVersion != "" &&
+			m.appConfig.LastVersion != "" &&
+			m.appConfig.LastVersion != m.currentVersion {
+			m.changelogChanges = getChangesSince(m.changelog, m.appConfig.LastVersion, m.currentVersion)
+			if len(m.changelogChanges) > 0 {
+				m.state = stateWhatsNew
+				m.appConfig.LastVersion = m.currentVersion
+				_ = config.Save(m.appConfig)
+				return m, checkForUpdateCmd(m.currentVersion)
+			}
+		}
+		// First run: store current version without showing changelog
+		if m.currentVersion != "dev" && m.currentVersion != "" && m.appConfig.LastVersion == "" {
+			m.appConfig.LastVersion = m.currentVersion
+			_ = config.Save(m.appConfig)
+		}
+		m.state = stateEntries
 		return m, checkForUpdateCmd(m.currentVersion)
 
 	case dataErrorMsg:
@@ -245,6 +263,9 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = stateDeletingConfirm
 					m.deleteConfirm = false
 				}
+				return m, nil
+			case "c":
+				m.state = stateChangelog
 				return m, nil
 			case "up", "k":
 				if m.entryCursor > 0 {
@@ -491,6 +512,20 @@ func (m trackerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateFormSaving
 				m.loading = "Guardando entrada..."
 				return m, createEntryCmd(m.apiClient, entry)
+			}
+			return m, nil
+
+		case stateChangelog:
+			switch msg.String() {
+			case "q", "esc":
+				m.state = stateEntries
+			}
+			return m, nil
+
+		case stateWhatsNew:
+			switch msg.String() {
+			case "q", "esc", "enter":
+				m.state = stateEntries
 			}
 			return m, nil
 		}

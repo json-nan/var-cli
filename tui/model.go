@@ -48,6 +48,8 @@ const (
 	stateFormSaving
 	stateDeletingConfirm
 	stateDeleting
+	stateChangelog
+	stateWhatsNew
 )
 
 type configLoadedMsg config.AppConfig
@@ -134,6 +136,10 @@ type trackerModel struct {
 	// Terminal width
 	width int
 
+	// Changelog
+	changelog        []ChangelogEntry
+	changelogChanges []ChangelogEntry
+
 	// Error / loading / flash
 	err     error
 	loading string
@@ -164,6 +170,8 @@ func NewModel(version string) trackerModel {
 	timeIn := textinput.New()
 	timeIn.Placeholder = "60"
 
+	clog, _ := loadChangelog()
+
 	return trackerModel{
 		state:          stateInitializing,
 		tokenInput:     ti,
@@ -174,6 +182,7 @@ func NewModel(version string) trackerModel {
 		dayProgress:    dp,
 		weekProgress:   wp,
 		currentVersion: version,
+		changelog:      clog,
 	}
 }
 

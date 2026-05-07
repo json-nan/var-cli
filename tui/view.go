@@ -236,6 +236,10 @@ func (m trackerModel) View() tea.View {
 		s = m.renderFormBillable()
 	case stateFormSaving:
 		s = m.renderLoading("Guardando entrada...")
+	case stateChangelog:
+		s = m.renderChangelog()
+	case stateWhatsNew:
+		s = m.renderWhatsNew()
 	}
 
 	finalView := lipgloss.NewStyle().Margin(1, 2).Render(s)
@@ -558,6 +562,7 @@ func (m trackerModel) renderHelpBar() string {
 	keys = append(keys, "n nuevo")
 	keys = append(keys, "e editar")
 	keys = append(keys, "d eliminar")
+	keys = append(keys, "c changelog")
 	if m.showAllEntries {
 		keys = append(keys, "a semana")
 	} else {
@@ -569,6 +574,31 @@ func (m trackerModel) renderHelpBar() string {
 	}
 	keys = append(keys, "q salir")
 	return helpStyle.Render(strings.Join(keys, "  "))
+}
+
+func (m trackerModel) renderChangelog() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Changelog") + "\n\n")
+	if len(m.changelog) == 0 {
+		b.WriteString("No se encontro el archivo CHANGELOG.md.\n")
+	} else {
+		b.WriteString(renderChangelogEntries(m.changelog))
+	}
+	b.WriteString("\n\n" + helpStyle.Render("Esc o q para volver"))
+	return b.String()
+}
+
+func (m trackerModel) renderWhatsNew() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Novedades") + "\n\n")
+	b.WriteString(labelStyle.Render(fmt.Sprintf("Actualizaste a la version %s", m.currentVersion)) + "\n\n")
+	if len(m.changelogChanges) == 0 {
+		b.WriteString("No hay notas de cambios para esta version.\n")
+	} else {
+		b.WriteString(renderChangelogEntries(m.changelogChanges))
+	}
+	b.WriteString("\n\n" + helpStyle.Render("Enter, Esc o q para continuar"))
+	return b.String()
 }
 
 func groupEntriesByDate(entries []api.TimeEntry) map[string][]api.TimeEntry {
