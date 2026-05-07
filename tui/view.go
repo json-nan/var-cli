@@ -326,10 +326,17 @@ func (m trackerModel) renderHeader() string {
 			parts = append(parts, m.profile.Position)
 		}
 	}
-	if len(parts) == 0 {
-		return titleStyle.Render("VAR CLI")
+
+	versionStr := m.currentVersion
+	if versionStr != "" && versionStr != "dev" && !strings.HasPrefix(versionStr, "v") {
+		versionStr = "v" + versionStr
 	}
-	return titleStyle.Render(strings.Join(parts, " / "))
+	versionRendered := mutedStyle.Render(versionStr)
+
+	if len(parts) == 0 {
+		return titleStyle.Render("VAR CLI") + "  " + versionRendered
+	}
+	return titleStyle.Render(strings.Join(parts, " / ")) + "  " + versionRendered
 }
 
 func (m trackerModel) renderProgressSection() string {
